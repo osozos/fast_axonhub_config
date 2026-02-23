@@ -1,7 +1,6 @@
-# 🚀 Axonhub 配置转换器(导入/恢复配置)
+# 🚀 AxonHub 多渠道快速配置工具
 
-这是一个基于纯前端（HTML + 原生 JavaScript + Tailwind CSS）实现的单页应用程序。该工具旨在将杂乱的 API 渠道（Channels）配置和复杂的 LLM 模型（Models）匹配规则，自动化地转换为 Axonhub JSON 配置文件(导入/恢复配置)
-。
+这是一个基于纯前端（HTML + 原生 JavaScript + Tailwind CSS）实现的单页应用程序。该工具旨在将杂乱的 API 渠道（Channels）配置和复杂的 LLM 模型（Models）匹配规则，自动化地转换为 Axonhub JSON 配置文件(备份恢复文件)。
 
 无需部署任何后端服务，**直接双击 HTML 文件即可在浏览器中运行**。
 
