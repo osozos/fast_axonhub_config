@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Axonhub 配置转换器</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 js-yaml 用于解析 YAML 配置 -->
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans antialiased p-6 md:p-12 min-h-screen">
+    <div class="max-w-7xl mx-auto bg-white p-8 rounded-xl shadow-lg border border-gray-100">
+        <h1 class="text-3xl font-bold mb-8 text-gray-900">Axonhub 配置转换器</h1>
+        
+        <!-- 双列输入布局 -->
+        <div class="flex flex-col lg:flex-row gap-8 mb-6">
+            
+            <!-- Channels 配置区域 -->
+            <div class="flex-1 flex flex-col">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    Channels 配置
+                    <span class="text-gray-500 font-normal ml-2">(支持 YAML 或 CSV)</span>
+                </label>
+                <textarea id="channelInput" rows="12" class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-shadow resize-y" placeholder="支持 YAML:
+- url: https://api.example.com
+  keys: [sk-xxxxxx]
+
+也支持 CSV:
+192.168.1.128:3000,sk-yyyyyy,localhost,公益站|claude"></textarea>
+                
+                <!-- 跨域代理设置区 (仅针对 Channels) -->
+                <div class="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div class="flex items-center mb-2">
+                        <input type="checkbox" id="useProxy" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
+                        <label for="useProxy" class="ml-2 text-sm font-bold text-gray-800">启用 CORS 跨域代理 (仅针对直连遇到跨域拦截时)</label>
+                    </div>
+                    <div class="flex items-center mt-3">
+                        <label class="text-sm text-gray-600 mr-3 whitespace-nowrap">代理地址:</label>
+                        <input type="text" id="proxyUrl" value="https://corsproxy.io/?" disabled class="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm bg-gray-100" placeholder="例如: https://corsproxy.io/?">
+                    </div>
+                    <p class="text-xs text-yellow-700 mt-2">
+                        ⚠️ <b>安全提示</b>：默认使用公共代理仅供测试。由于请求头包含敏感的 <b>API Key</b>，建议长期使用时替换为您自建的代理（如 Cloudflare Worker），或关闭此选项并安装浏览器的「Allow CORS」插件。
+                    </p>
+                </div>
+            </div>
+
+            <!-- Models 配置区域 -->
+            <div class="flex-1 flex flex-col">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    Models 配置
+                    <span class="text-gray-500 font-normal ml-2">(仅支持 YAML)</span>
+                </label>
+                <textarea id="modelInput" rows="12" class="w-full h-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-shadow resize-y" placeholder="providers:
+  - deepseek
+  - google
+  - openai
+  - anthropic
+includes: 
+  - gemini.*3|gemini-3,google
+  - deepseek.*3\.[2-9]|deepseek.*3\.\d{2,},deepseek
+excludes:
+  - image"></textarea>
+            </div>
+        </div>
+
+        <button id="convertBtn" class="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 disabled:bg-blue-400 flex items-center justify-center font-medium transition-colors shadow-sm w-full md:w-auto">
+            <svg id="loadingIcon" class="hidden animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span id="btnText">开始转换</span>
+        </button>
+
+        <!-- 进度条 -->
+        <div id="progressContainer" class="hidden mt-6">
+            <div class="flex justify-between text-sm font-medium text-gray-700 mb-1">
+                <span>Channels 处理进度...</span>
+                <span id="progressText">0%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- 实时日志面板 -->
+        <div id="logContainer" class="hidden mt-6 p-4 bg-gray-900 rounded-lg shadow-inner">
+            <div class="text-xs text-gray-400 mb-2 font-bold border-b border-gray-700 pb-1">实时运行日志</div>
+            <ul id="logList" class="space-y-1 font-mono text-xs max-h-48 overflow-y-auto scroll-smooth"></ul>
+        </div>
+
+        <!-- 统计面板 -->
+        <div id="summaryContainer" class="hidden mt-6 p-4 bg-blue-50 border-l-4 border-blue-500 text-blue-800 rounded-md flex flex-wrap gap-6 font-medium">
+            <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-green-500 mr-2"></span>成功: <span id="successCount" class="ml-1 font-bold">0</span></div>
+            <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-red-500 mr-2"></span>失败: <span id="failCount" class="ml-1 font-bold">0</span></div>
+            <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>生成渠道数: <span id="channelCount" class="ml-1 font-bold">0</span></div>
+            <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-purple-500 mr-2"></span>生成模型数: <span id="modelCount" class="ml-1 font-bold">0</span></div>
+        </div>
+
+        <!-- 错误信息 -->
+        <div id="errorContainer" class="hidden mt-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md">
+            <h3 class="font-bold mb-2">以下请求出现失败:</h3>
+            <ul id="errorList" class="list-disc pl-5 space-y-1 text-sm max-h-40 overflow-y-auto"></ul>
+        </div>
+
+        <!-- 输出结果 -->
+        <div id="outputContainer" class="hidden mt-8">
+            <div class="flex items-center justify-between mb-2">
+                <label class="block text-sm font-semibold text-gray-700">转换结果 JSON</label>
+                <button id="copyBtn" class="bg-green-600 text-white px-4 py-1.5 rounded-md hover:bg-green-700 text-sm font-medium transition-colors shadow-sm">复制 JSON</button>
+            </div>
+            <textarea id="outputJson" rows="24" class="w-full p-4 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" readonly></textarea>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const channelInput = document.getElementById('channelInput');
+            const modelInput = document.getElementById('modelInput');
+            
+            const convertBtn = document.getElementById('convertBtn');
+            const loadingIcon = document.getElementById('loadingIcon');
+            const btnText = document.getElementById('btnText');
+            
+            const useProxyCheckbox = document.getElementById('useProxy');
+            const proxyUrlInput = document.getElementById('proxyUrl');
+
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            
+            const logContainer = document.getElementById('logContainer');
+            const logList = document.getElementById('logList');
+
+            const summaryContainer = document.getElementById('summaryContainer');
+            const elSuccessCount = document.getElementById('successCount');
+            const elFailCount = document.getElementById('failCount');
+            const elChannelCount = document.getElementById('channelCount');
+            const elModelCount = document.getElementById('modelCount');
+
+            const errorContainer = document.getElementById('errorContainer');
+            const errorList = document.getElementById('errorList');
+            const outputContainer = document.getElementById('outputContainer');
+            const outputJson = document.getElementById('outputJson');
+            const copyBtn = document.getElementById('copyBtn');
+
+            useProxyCheckbox.addEventListener('change', (e) => {
+                proxyUrlInput.disabled = !e.target.checked;
+                proxyUrlInput.classList.toggle('bg-gray-100', !e.target.checked);
+            });
+
+            const addLog = (msg, type = 'info') => {
+                const li = document.createElement('li');
+                li.textContent = `> ${msg}`;
+                if (type === 'warn') li.className = 'text-yellow-400';
+                else if (type === 'error') li.className = 'text-red-400';
+                else if (type === 'success') li.className = 'text-green-400';
+                else li.className = 'text-gray-300';
+                logList.appendChild(li);
+                logList.scrollTop = logList.scrollHeight;
+            };
+
+            const getIsoTime = () => {
+                const d = new Date();
+                return d.toISOString().replace('Z', '000Z');
+            };
+
+            const extractName = (urlStr) => {
+                try {
+                    let url = urlStr.startsWith('http') ? new URL(urlStr) : new URL('https://' + urlStr);
+                    let hostname = url.hostname;
+                    const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+                    if (ipRegex.test(hostname)) return hostname;
+                    let parts = hostname.split('.');
+                    if (parts.length >= 2) return parts[parts.length - 2];
+                    return hostname;
+                } catch (e) {
+                    return urlStr;
+                }
+            };
+
+            // 解析 Channel 文本 (支持 YAML 数组 或 CSV)
+            const parseChannelInput = (text) => {
+                if (!text) return [];
+                try {
+                    const parsed = jsyaml.load(text);
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        // 兼容直接给数组，或包裹在 channels: 下面
+                        const arr = Array.isArray(parsed) ? parsed : (parsed.channels || []);
+                        if (arr.length > 0) {
+                            return arr.map(item => ({
+                                url: String(item.url || ''),
+                                keys: [].concat(item.keys || item.auth || item.apiKey || []),
+                                name: item.name ? String(item.name) : '',
+                                tags: [].concat(item.tags || [])
+                            }));
+                        }
+                    }
+                } catch (e) {}
+
+                // CSV 回退
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+                return lines.map(line => {
+                    const parts = line.split(',');
+                    const url = parts[0]?.trim();
+                    const apiKey = parts[1]?.trim() || '';
+                    const name = parts[2]?.trim() || '';
+                    const tagsStr = parts[3]?.trim() || '';
+                    const tags = tagsStr ? tagsStr.split('|').map(t => t.trim()) : [];
+                    return { url: url, keys: [apiKey], name: name, tags: tags };
+                });
+            };
+
+            // 解析 Model 文本 (仅支持 YAML)
+            const parseModelInput = (text) => {
+                if (!text) return null;
+                try {
+                    const parsed = jsyaml.load(text);
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        // 兼容用户包裹在 models: 下，或者直接写 providers:
+                        return parsed.models ? parsed.models : parsed;
+                    }
+                } catch (e) {
+                    throw new Error("Models YAML 解析失败: " + e.message);
+                }
+                return null;
+            };
+
+            const getPermutations = (arr) => {
+                if (arr.length <= 1) return [arr];
+                let result = [];
+                for (let i = 0; i < arr.length; i++) {
+                    let current = arr[i];
+                    let remaining = arr.slice(0, i).concat(arr.slice(i + 1));
+                    let remainingPerms = getPermutations(remaining);
+                    for (let perm of remainingPerms) {
+                        result.push([current].concat(perm));
+                    }
+                }
+                return result;
+            };
+
+            const generateAssociations = (modelIdStr) => {
+                let cleanId = modelIdStr.split('/').pop();
+                let parts = cleanId.split('-');
+                let components = [];
+                
+                for (let i = 0; i < parts.length; i++) {
+                    let curr = parts[i];
+                    if (/^\d+$/.test(curr) && i + 1 < parts.length && /^\d+$/.test(parts[i+1])) {
+                        components.push(`${curr}.${parts[i+1]}`);
+                        i++;
+                    } else if ((/^\d$/.test(curr) || /^[a-zA-Z]\d$/.test(curr)) && i + 1 < parts.length) {
+                        components.push(`${curr}-${parts[i+1]}`);
+                        i++;
+                    } else {
+                        components.push(curr);
+                    }
+                }
+                
+                let base = components[0];
+                let rest = components.slice(1);
+                let perms = getPermutations(rest);
+                
+                let patterns = perms.map(p => {
+                    return '.*' + [base, ...p].join('.*');
+                });
+                
+                patterns = [...new Set(patterns)];
+                let priority = Math.max(5, patterns.length);
+                
+                return patterns.map(p => ({
+                    type: "regex",
+                    priority: priority,
+                    disabled: false,
+                    channelModel: null,
+                    channelRegex: null,
+                    regex: { pattern: p },
+                    modelId: null,
+                    channelTagsModel: null,
+                    channelTagsRegex: null
+                }));
+            };
+
+            const formatModel = (mId, modelData, providerData, developer, now) => {
+                let cleanId = mId.split('/').pop();
+                let icon = providerData.lobeIcon ? providerData.lobeIcon.split('.')[0] : providerData.name;
+                let cost = modelData.cost || {};
+                
+                return {
+                    id: 0,
+                    created_at: now,
+                    updated_at: now,
+                    developer: developer,
+                    model_id: cleanId,
+                    type: "chat",
+                    name: modelData.name || cleanId,
+                    icon: icon,
+                    group: modelData.family || "",
+                    model_card: {
+                        reasoning: {
+                            supported: !!modelData.reasoning,
+                            default: !!modelData.reasoning
+                        },
+                        toolCall: !!modelData.tool_call,
+                        temperature: !!modelData.temperature,
+                        modalities: modelData.modalities || { input: ["text"], output: ["text"] },
+                        vision: modelData.modalities && modelData.modalities.input ? modelData.modalities.input.includes("image") : false,
+                        cost: {
+                            input: cost.input || 0,
+                            output: cost.output || 0,
+                            cacheRead: cost.cache_read || 0,
+                            cacheWrite: cost.cache_write || 0
+                        },
+                        limit: modelData.limit || { context: 0, output: 0 },
+                        knowledge: modelData.knowledge || "",
+                        releaseDate: modelData.release_date || "",
+                        lastUpdated: modelData.last_updated || ""
+                    },
+                    settings: {
+                        associations: generateAssociations(cleanId)
+                    },
+                    status: "enabled",
+                    remark: ""
+                };
+            };
+
+            const processModels = async (modelsConfig) => {
+                if (!modelsConfig || !modelsConfig.includes) return [];
+                
+                addLog('开始获取 LLM 元数据...', 'info');
+                let metadata;
+                try {
+                    const res = await fetch('https://llm-metadata.pages.dev/api/all.json');
+                    if (!res.ok) throw new Error('Cloudflare Pages HTTP error');
+                    metadata = await res.json();
+                    addLog('成功从 Cloudflare Pages 获取 LLM 元数据', 'success');
+                } catch (e) {
+                    addLog('Cloudflare Pages 获取失败，尝试 GitHub Pages...', 'warn');
+                    try {
+                        const res = await fetch('https://basellm.github.io/llm-metadata/api/all.json');
+                        metadata = await res.json();
+                        addLog('成功从 GitHub Pages 获取 LLM 元数据', 'success');
+                    } catch (e2) {
+                        addLog('获取 LLM 元数据失败: ' + e2.message, 'error');
+                        return [];
+                    }
+                }
+                
+                const providersList = modelsConfig.providers || Object.keys(metadata);
+                const excludes = (modelsConfig.excludes || []).map(e => {
+                    try { return new RegExp(e, 'i'); } catch(err) { return null; }
+                }).filter(Boolean);
+                
+                let matchedModels = new Map();
+                const now = getIsoTime();
+                
+                for (let rule of modelsConfig.includes) {
+                    let patternStr = rule.trim();
+                    let ruleProvider = null;
+                    
+                    // 安全提取 provider，防止带有 {2,} 的正则被逗号错误截断
+                    const match = rule.match(/^(.*),([a-zA-Z0-9_-]+)$/);
+                    if (match) {
+                        patternStr = match[1].trim();
+                        ruleProvider = match[2].trim();
+                    }
+                    
+                    let regex;
+                    try {
+                        regex = new RegExp(patternStr, 'i');
+                    } catch (e) {
+                        addLog(`跳过无效的正则表达式: ${patternStr}`, 'error');
+                        continue;
+                    }
+                    
+                    let foundAny = false;
+                    const searchAndAdd = (providerKey, overrideDeveloper) => {
+                        let pData = metadata[providerKey];
+                        if (!pData || !pData.models) return false;
+                        let foundInProvider = false;
+                        for (let mId in pData.models) {
+                            if (regex.test(mId)) {
+                                if (excludes.some(ex => ex.test(mId))) continue;
+                                foundAny = true;
+                                foundInProvider = true;
+                                if (!matchedModels.has(mId)) {
+                                    let developer = overrideDeveloper || providerKey;
+                                    matchedModels.set(mId, formatModel(mId, pData.models[mId], pData, developer, now));
+                                }
+                            }
+                        }
+                        return foundInProvider;
+                    };
+                    
+                    if (ruleProvider) {
+                        searchAndAdd(ruleProvider, ruleProvider);
+                        if (!foundAny) {
+                            for (let p of providersList) {
+                                searchAndAdd(p, ruleProvider);
+                            }
+                        }
+                    } else {
+                        for (let p of providersList) {
+                            searchAndAdd(p, null);
+                        }
+                    }
+                }
+                
+                let finalModels = Array.from(matchedModels.values());
+                finalModels.forEach((m, idx) => m.id = idx + 1);
+                addLog(`Models 匹配完毕，共生成 ${finalModels.length} 个模型配置`, 'success');
+                return finalModels;
+            };
+
+            const fetchWithTimeout = async (resource, options, timeout) => {
+                const controller = new AbortController();
+                const id = setTimeout(() => controller.abort(), timeout);
+                try {
+                    const response = await fetch(resource, { ...options, signal: controller.signal });
+                    clearTimeout(id);
+                    return response;
+                } catch (error) {
+                    clearTimeout(id);
+                    throw error;
+                }
+            };
+
+            const applyProxy = (url) => {
+                const proxyPrefix = proxyUrlInput.value.trim();
+                if (!proxyPrefix) return url;
+                return proxyPrefix.endsWith('=') ? proxyPrefix + encodeURIComponent(url) : proxyPrefix + url;
+            };
+
+            const processChannels = async (channelConfigs, errors) => {
+                const tasks = [];
+                channelConfigs.forEach((config, configIndex) => {
+                    if (!config.url) return;
+                    let apiKeys = config.keys.length > 0 ? config.keys : [''];
+                    let baseName = config.name ? config.name : extractName(config.url);
+                    apiKeys.forEach(apiKey => {
+                        tasks.push({ url: config.url, apiKey: apiKey, baseName: baseName, initialTags: config.tags, configIndex: configIndex });
+                    });
+                });
+
+                if (tasks.length === 0) return { channels: [], successCount: 0, failCount: 0 };
+
+                let usedNames = new Set();
+                let totalTasks = tasks.length;
+                let completedTasks = 0;
+                let successCount = 0;
+                let failCount = 0;
+
+                progressContainer.classList.remove('hidden');
+
+                const promises = tasks.map(async (task) => {
+                    let generatedChannels = [];
+                    let baseUrl = task.url.startsWith('http') ? task.url : 'https://' + task.url;
+                    baseUrl = baseUrl.replace(/\/$/, '');
+                    if (baseUrl.endsWith('/v1')) baseUrl = baseUrl.substring(0, baseUrl.length - 3);
+                    if (baseUrl.endsWith('/v1beta')) baseUrl = baseUrl.substring(0, baseUrl.length - 7);
+                    
+                    let targetUrl = baseUrl + '/v1/models';
+                    let needsProxy = false;
+                    const timeouts = [10000, 20000, 30000]; 
+                    const options = { headers: { 'Authorization': `Bearer ${task.apiKey}`, 'Content-Type': 'application/json' } };
+
+                    try {
+                        let modelsData = null;
+                        for (let i = 0; i < timeouts.length; i++) {
+                            const timeout = timeouts[i];
+                            if (i > 0) addLog(`[${task.baseName}] 请求超时，发起第 ${i} 次重连，等待 ${timeout / 1000}s...`, 'warn');
+
+                            try {
+                                let currentUrl = needsProxy ? applyProxy(targetUrl) : targetUrl;
+                                try {
+                                    const response = await fetchWithTimeout(currentUrl, options, timeout);
+                                    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+                                    modelsData = await response.json();
+                                    break;
+                                } catch (err) {
+                                    if (err.name !== 'AbortError' && !needsProxy && useProxyCheckbox.checked && err instanceof TypeError) {
+                                        needsProxy = true;
+                                        addLog(`[${task.baseName}] 遇到跨域拦截，已切换至跨域代理重新请求...`, 'warn');
+                                        currentUrl = applyProxy(targetUrl);
+                                        const proxyRes = await fetchWithTimeout(currentUrl, options, timeout);
+                                        if (!proxyRes.ok) throw new Error(`HTTP ${proxyRes.status} ${proxyRes.statusText}`);
+                                        modelsData = await proxyRes.json();
+                                        break;
+                                    } else {
+                                        throw err;
+                                    }
+                                }
+                            } catch (outerErr) {
+                                if (outerErr.name === 'AbortError') {
+                                    if (i === timeouts.length - 1) throw new Error(`连续 3 次请求超时，已放弃连接。`);
+                                } else {
+                                    throw outerErr;
+                                }
+                            }
+                        }
+
+                        successCount++;
+                        addLog(`[${task.baseName}] 获取渠道模型成功!`, 'success');
+
+                        if (modelsData && modelsData.data && Array.isArray(modelsData.data)) {
+                            const typeGroups = { openai: new Set(), openai_responses: new Set(), anthropic: new Set(), gemini: new Set() };
+
+                            modelsData.data.forEach(m => {
+                                const modelId = m.id;
+                                const channel = (m.owned_by || '').toLowerCase();
+                                const endpointTypes = m.supported_endpoint_types || [];
+                                let type = 'openai';
+
+                                if (['openai', 'anthropic', 'gemini'].includes(channel)) {
+                                    type = channel;
+                                } else {
+                                    const hasAnthropic = endpointTypes.includes('anthropic');
+                                    const hasOpenai = endpointTypes.includes('openai');
+                                    const hasGemini = endpointTypes.includes('gemini');
+                                    const modelLower = modelId.toLowerCase();
+
+                                    if (hasAnthropic && hasOpenai && modelLower.includes('claude')) type = 'anthropic';
+                                    else if (hasGemini && hasOpenai && modelLower.includes('gemini')) type = 'gemini';
+                                    else type = 'openai';
+                                }
+
+                                if (type === 'openai') {
+                                    const modelLower = modelId.toLowerCase();
+                                    let isCodex = modelLower.includes('codex');
+                                    let isGpt5OrAbove = false;
+                                    const match = modelId.match(/gpt-(\d+)/i);
+                                    if (match && parseInt(match[1]) >= 5) isGpt5OrAbove = true;
+                                    if (isCodex || isGpt5OrAbove) type = 'openai_responses';
+                                }
+                                typeGroups[type].add(modelId);
+                            });
+
+                            const now = getIsoTime();
+
+                            for (const [type, modelsSet] of Object.entries(typeGroups)) {
+                                if (modelsSet.size === 0) continue;
+                                const supported_models = Array.from(modelsSet).sort();
+                                
+                                let safeUrl = task.url.startsWith('http') ? task.url : 'https://' + task.url;
+                                let origin = new URL(safeUrl).origin;
+                                let finalBaseUrl = origin;
+                                if (type === 'openai' || type === 'openai_responses') finalBaseUrl += '/v1';
+                                else if (type === 'gemini') finalBaseUrl += '/v1beta';
+
+                                let suffix = type === 'openai_responses' ? 'codex' : type === 'anthropic' ? 'claude' : type;
+                                let finalName = `${task.baseName} (${suffix})`;
+
+                                if (usedNames.has(finalName)) {
+                                    let i = 1;
+                                    while (usedNames.has(`${finalName} (${i})`)) i++;
+                                    finalName = `${finalName} (${i})`;
+                                }
+                                usedNames.add(finalName);
+
+                                let finalTags = new Set(task.initialTags.length > 0 ? task.initialTags : ['公益站']);
+                                const keywords = ['glm', 'kimi', 'minimax', 'qwen', 'deepseek', 'gpt', 'claude', 'gemini', 'grok'];
+                                let hasOther = false;
+
+                                supported_models.forEach(m => {
+                                    const mLower = m.toLowerCase();
+                                    let matched = false;
+                                    keywords.forEach(kw => {
+                                        if (mLower.includes(kw)) {
+                                            finalTags.add(kw);
+                                            matched = true;
+                                        }
+                                    });
+                                    if (!matched) hasOther = true;
+                                });
+                                if (hasOther) finalTags.add('other');
+
+                                const default_test_model = supported_models[Math.floor(Math.random() * supported_models.length)];
+
+                                generatedChannels.push({
+                                    id: 0, created_at: now, updated_at: now, type: type, base_url: finalBaseUrl,
+                                    name: finalName, status: "enabled", supported_models: supported_models,
+                                    tags: Array.from(finalTags), default_test_model: default_test_model,
+                                    policies: { stream: "unlimited" }, ordering_weight: 50, remark: "", edges: {},
+                                    credentials: { apiKey: task.apiKey, gcp: { region: "", projectID: "", jsonData: "" } },
+                                    _configIndex: task.configIndex
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        failCount++;
+                        let keyPreview = task.apiKey ? task.apiKey.substring(0, 8) + '...' : '空Key';
+                        addLog(`[${task.baseName}] 获取失败: ${e.message}`, 'error');
+                        errors.push(`[${task.url}] Key: ${keyPreview} 获取失败: ${e.message}`);
+                    } finally {
+                        completedTasks++;
+                        let percent = Math.round((completedTasks / totalTasks) * 100);
+                        progressBar.style.width = `${percent}%`;
+                        progressText.textContent = `${percent}%`;
+                    }
+                    return generatedChannels;
+                });
+
+                const results = await Promise.all(promises);
+                let finalChannels = [];
+                results.forEach(res => { if (res) finalChannels.push(...res); });
+                finalChannels.sort((a, b) => a._configIndex - b._configIndex);
+                finalChannels.forEach((channel, idx) => {
+                    channel.id = idx + 1;
+                    delete channel._configIndex;
+                });
+
+                return { channels: finalChannels, successCount, failCount };
+            };
+
+            convertBtn.addEventListener('click', async () => {
+                const channelText = channelInput.value.trim();
+                const modelText = modelInput.value.trim();
+
+                if (!channelText && !modelText) {
+                    alert("请至少填写 Channels 或 Models 配置！");
+                    return;
+                }
+
+                convertBtn.disabled = true;
+                loadingIcon.classList.remove('hidden');
+                btnText.textContent = '正在处理数据...';
+                
+                logContainer.classList.remove('hidden');
+                logList.innerHTML = '';
+                addLog('任务已启动，开始解析配置...', 'info');
+
+                summaryContainer.classList.add('hidden');
+                errorContainer.classList.add('hidden');
+                outputContainer.classList.add('hidden');
+                errorList.innerHTML = '';
+                outputJson.value = '';
+
+                let channelConfigs = [];
+                let modelsConfig = null;
+                const errors = [];
+
+                try {
+                    channelConfigs = parseChannelInput(channelText);
+                    if (modelText) {
+                        modelsConfig = parseModelInput(modelText);
+                    }
+                } catch (e) {
+                    addLog(e.message, 'error');
+                    resetUI();
+                    return;
+                }
+                
+                try {
+                    const [channelsResult, finalModels] = await Promise.all([
+                        processChannels(channelConfigs, errors),
+                        processModels(modelsConfig)
+                    ]);
+
+                    elSuccessCount.textContent = channelsResult.successCount;
+                    elFailCount.textContent = channelsResult.failCount;
+                    elChannelCount.textContent = channelsResult.channels.length;
+                    elModelCount.textContent = finalModels.length;
+                    summaryContainer.classList.remove('hidden');
+
+                    if (errors.length > 0) {
+                        errors.forEach(err => {
+                            const li = document.createElement('li');
+                            li.textContent = err;
+                            errorList.appendChild(li);
+                        });
+                        errorContainer.classList.remove('hidden');
+                    }
+
+                    const finalOutput = {
+                        version: "1.1",
+                        timestamp: getIsoTime(),
+                        channels: channelsResult.channels,
+                        models: finalModels
+                    };
+
+                    outputJson.value = JSON.stringify(finalOutput, null, 4);
+                    outputContainer.classList.remove('hidden');
+                    addLog('所有转换任务完成！', 'success');
+                } catch (e) {
+                    addLog(`执行过程中发生严重错误: ${e.message}`, 'error');
+                }
+
+                resetUI();
+            });
+
+            function resetUI() {
+                convertBtn.disabled = false;
+                loadingIcon.classList.add('hidden');
+                btnText.textContent = '开始转换';
+                setTimeout(() => { progressContainer.classList.add('hidden'); }, 1500);
+            }
+
+            copyBtn.addEventListener('click', () => {
+                outputJson.select();
+                navigator.clipboard.writeText(outputJson.value).then(() => {
+                    const originalText = copyBtn.textContent;
+                    copyBtn.textContent = '已复制!';
+                    copyBtn.classList.replace('bg-green-600', 'bg-teal-600');
+                    setTimeout(() => {
+                        copyBtn.textContent = originalText;
+                        copyBtn.classList.replace('bg-teal-600', 'bg-green-600');
+                    }, 2000);
+                }).catch(err => {
+                    alert('复制失败，请手动复制');
+                });
+            });
+        });
+    </script>
+</body>
+</html>
