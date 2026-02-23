@@ -240,6 +240,7 @@ excludes:
                 return result;
             };
 
+            // 核心修复点：生成 Associations 时，对单个数字强制添加 - 前缀
             const generateAssociations = (modelIdStr) => {
                 let cleanId = modelIdStr.split('/').pop();
                 let parts = cleanId.split('-');
@@ -247,14 +248,26 @@ excludes:
                 
                 for (let i = 0; i < parts.length; i++) {
                     let curr = parts[i];
+                    // 规则1: {digit}-{digit} 转 {digit}.{digit} (如 4-5 转 4.5)
                     if (/^\d+$/.test(curr) && i + 1 < parts.length && /^\d+$/.test(parts[i+1])) {
                         components.push(`${curr}.${parts[i+1]}`);
                         i++;
-                    } else if ((/^\d$/.test(curr) || /^[a-zA-Z]\d$/.test(curr)) && i + 1 < parts.length) {
-                        components.push(`${curr}-${parts[i+1]}`);
+                    } 
+                    // 规则2: 单个数字或字母+单个数字不排末尾，与后面组件用 - 连接
+                    else if ((/^\d$/.test(curr) || /^[a-zA-Z]\d$/.test(curr)) && i + 1 < parts.length) {
+                        // 【修复】如果是单个数字，加上前缀 - 防止错误匹配 (如 .*5 匹配到 4.5)
+                        let prefix = /^\d$/.test(curr) ? '-' : '';
+                        components.push(`${prefix}${curr}-${parts[i+1]}`);
                         i++;
-                    } else {
-                        components.push(curr);
+                    } 
+                    // 规则3: 其他正常保留
+                    else {
+                        // 【修复】如果是末尾的单个数字，同样加上前缀 -
+                        if (/^\d$/.test(curr)) {
+                            components.push(`-${curr}`);
+                        } else {
+                            components.push(curr);
+                        }
                     }
                 }
                 
