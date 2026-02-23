@@ -221,3 +221,21 @@ export default {
     ]
 }
 ```
+
+---
+
+## 🙏 鸣谢 | Acknowledgments
+
+本项目的诞生离不开以下优秀的开源项目、数据源与 AI 助手的支持，在此表示诚挚的感谢：
+
+*   **[AxonHub](https://github.com/looplj/axonhub)** - AI 网关，让你无需改动一行代码即可切换模型供应商。
+*   **[LLM 元数据 (LLM Metadata)](https://github.com/basellm/llm-metadata)** - 提供模型基础数据的轻量级静态 API。
+*   **Gemini** - 大语言模型（AI）辅助编写与迭代完成。
+
+---
+
+## 📜 开源证书 | License
+
+本项目采用 [MIT License](https://opensource.org/licenses/MIT) 开源协议。
+
+这意味着你可以完全免费地将本工具用于个人或商业项目。你可以自由地使用、复制、修改、合并、发布分发、再授权及售卖本软件的副本，只需在软件和软件的所有副本中包含上述版权声明和本许可声明即可。
