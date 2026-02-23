@@ -25,9 +25,10 @@
                 <textarea id="channelInput" rows="12" class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-shadow resize-y" placeholder="支持 YAML:
 - url: https://api.example.com
   keys: [sk-xxxxxx]
+  type: claudecode
 
-也支持 CSV:
-192.168.1.128:3000,sk-yyyyyy,localhost,公益站|claude"></textarea>
+也支持 CSV (URL,apiKey[,name[,type[,tags]]]):
+192.168.1.128:3000,sk-yyyyyy,localhost,zhipu_anthropic,公益站|claude"></textarea>
                 
                 <!-- 跨域代理设置区 (仅针对 Channels) -->
                 <div class="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -114,6 +115,53 @@ excludes:
     </div>
 
     <script>
+        // AxonHub 源码中的 Channel 后缀配置映射表
+        const CHANNEL_SUFFIXES = {
+            openai: '/v1',
+            openai_responses: '/v1',
+            codex: '/backend-api/codex#',
+            antigravity: '',
+            deepseek: '/v1',
+            deepseek_anthropic: '/anthropic',
+            deepinfra: '/v1/openai',
+            anthropic: '',
+            gemini_openai: '/v1beta/openai',
+            gemini: '/v1beta',
+            gemini_vertex: '/v1',
+            minimax: '/v1',
+            minimax_anthropic: '/anthropic',
+            moonshot: '/v1',
+            moonshot_anthropic: '/anthropic',
+            zhipu: '/api/paas/v4',
+            zai: '/api/paas/v4',
+            zhipu_anthropic: '/api/anthropic',
+            zai_anthropic: '/api/anthropic',
+            doubao: '/api/v3',
+            doubao_anthropic: '/api/compatible',
+            vercel: '/v1',
+            openrouter: '/api/v1',
+            xiaomi: '/v1',
+            xai: '/v1',
+            longcat: '/openai/v1',
+            longcat_anthropic: '/anthropic',
+            ppio: '/openai/v1',
+            siliconflow: '/v1',
+            volcengine: '/api/v3',
+            anthropic_fake: '/v1',
+            openai_fake: '/v1',
+            aihubmix: '/v1',
+            burncloud: '/v1',
+            modelscope: '/v1',
+            bailian: '/compatible-mode/v1',
+            anthropic_aws: '',
+            anthropic_gcp: '',
+            jina: '/v1',
+            github: '/inference',
+            claudecode: '/v1',
+            cerebras: '/v1',
+            nanogpt: '/api/v1'
+        };
+
         document.addEventListener('DOMContentLoaded', () => {
             const channelInput = document.getElementById('channelInput');
             const modelInput = document.getElementById('modelInput');
@@ -179,7 +227,7 @@ excludes:
                 }
             };
 
-            // 解析 Channel 文本 (支持 YAML 数组 或 CSV)
+            // 解析 Channel 文本 (支持 YAML 或 CSV，新增 type 支持)
             const parseChannelInput = (text) => {
                 if (!text) return [];
                 try {
@@ -192,22 +240,24 @@ excludes:
                                 url: String(item.url || ''),
                                 keys: [].concat(item.keys || item.auth || item.apiKey || []),
                                 name: item.name ? String(item.name) : '',
+                                type: item.type ? String(item.type) : '', // 新增解析 type
                                 tags: [].concat(item.tags || [])
                             }));
                         }
                     }
                 } catch (e) {}
 
-                // CSV 回退
+                // CSV 回退 (URL,apiKey[,name[,type[,tags]]])
                 const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
                 return lines.map(line => {
                     const parts = line.split(',');
                     const url = parts[0]?.trim();
                     const apiKey = parts[1]?.trim() || '';
                     const name = parts[2]?.trim() || '';
-                    const tagsStr = parts[3]?.trim() || '';
+                    const type = parts[3]?.trim() || ''; // 新增解析 type
+                    const tagsStr = parts[4]?.trim() || '';
                     const tags = tagsStr ? tagsStr.split('|').map(t => t.trim()) : [];
-                    return { url: url, keys: [apiKey], name: name, tags: tags };
+                    return { url: url, keys: [apiKey], name: name, type: type, tags: tags };
                 });
             };
 
@@ -452,7 +502,8 @@ excludes:
                     let apiKeys = config.keys.length > 0 ? config.keys : [''];
                     let baseName = config.name ? config.name : extractName(config.url);
                     apiKeys.forEach(apiKey => {
-                        tasks.push({ url: config.url, apiKey: apiKey, baseName: baseName, initialTags: config.tags, configIndex: configIndex });
+                        // 传入 explicitType
+                        tasks.push({ url: config.url, apiKey: apiKey, baseName: baseName, explicitType: config.type, initialTags: config.tags, configIndex: configIndex });
                     });
                 });
 
@@ -517,35 +568,43 @@ excludes:
                         addLog(`[${task.baseName}] 获取渠道模型成功!`, 'success');
 
                         if (modelsData && modelsData.data && Array.isArray(modelsData.data)) {
-                            const typeGroups = { openai: new Set(), openai_responses: new Set(), anthropic: new Set(), gemini: new Set() };
+                            const typeGroups = {};
 
                             modelsData.data.forEach(m => {
                                 const modelId = m.id;
-                                const channel = (m.owned_by || '').toLowerCase();
-                                const endpointTypes = m.supported_endpoint_types || [];
                                 let type = 'openai';
 
-                                if (['openai', 'anthropic', 'gemini'].includes(channel)) {
-                                    type = channel;
+                                // 如果用户显式指定了 Type，则跳过推断逻辑
+                                if (task.explicitType) {
+                                    type = task.explicitType;
                                 } else {
-                                    const hasAnthropic = endpointTypes.includes('anthropic');
-                                    const hasOpenai = endpointTypes.includes('openai');
-                                    const hasGemini = endpointTypes.includes('gemini');
-                                    const modelLower = modelId.toLowerCase();
+                                    const channel = (m.owned_by || '').toLowerCase();
+                                    const endpointTypes = m.supported_endpoint_types || [];
 
-                                    if (hasAnthropic && hasOpenai && modelLower.includes('claude')) type = 'anthropic';
-                                    else if (hasGemini && hasOpenai && modelLower.includes('gemini')) type = 'gemini';
-                                    else type = 'openai';
+                                    if (['openai', 'anthropic', 'gemini'].includes(channel)) {
+                                        type = channel;
+                                    } else {
+                                        const hasAnthropic = endpointTypes.includes('anthropic');
+                                        const hasOpenai = endpointTypes.includes('openai');
+                                        const hasGemini = endpointTypes.includes('gemini');
+                                        const modelLower = modelId.toLowerCase();
+
+                                        if (hasAnthropic && hasOpenai && modelLower.includes('claude')) type = 'anthropic';
+                                        else if (hasGemini && hasOpenai && modelLower.includes('gemini')) type = 'gemini';
+                                        else type = 'openai';
+                                    }
+
+                                    if (type === 'openai') {
+                                        const modelLower = modelId.toLowerCase();
+                                        let isCodex = modelLower.includes('codex');
+                                        let isGpt5OrAbove = false;
+                                        const match = modelId.match(/gpt-(\d+)/i);
+                                        if (match && parseInt(match[1]) >= 5) isGpt5OrAbove = true;
+                                        if (isCodex || isGpt5OrAbove) type = 'openai_responses';
+                                    }
                                 }
 
-                                if (type === 'openai') {
-                                    const modelLower = modelId.toLowerCase();
-                                    let isCodex = modelLower.includes('codex');
-                                    let isGpt5OrAbove = false;
-                                    const match = modelId.match(/gpt-(\d+)/i);
-                                    if (match && parseInt(match[1]) >= 5) isGpt5OrAbove = true;
-                                    if (isCodex || isGpt5OrAbove) type = 'openai_responses';
-                                }
+                                if (!typeGroups[type]) typeGroups[type] = new Set();
                                 typeGroups[type].add(modelId);
                             });
 
@@ -558,8 +617,15 @@ excludes:
                                 let safeUrl = task.url.startsWith('http') ? task.url : 'https://' + task.url;
                                 let origin = new URL(safeUrl).origin;
                                 let finalBaseUrl = origin;
-                                if (type === 'openai' || type === 'openai_responses') finalBaseUrl += '/v1';
-                                else if (type === 'gemini') finalBaseUrl += '/v1beta';
+                                
+                                // 核心：根据 CHANNEL_SUFFIXES 映射表自动拼接后缀
+                                if (CHANNEL_SUFFIXES.hasOwnProperty(type)) {
+                                    finalBaseUrl += CHANNEL_SUFFIXES[type];
+                                } else {
+                                    // 降级回退逻辑
+                                    if (type === 'openai' || type === 'openai_responses') finalBaseUrl += '/v1';
+                                    else if (type === 'gemini') finalBaseUrl += '/v1beta';
+                                }
 
                                 let suffix = type === 'openai_responses' ? 'codex' : type === 'anthropic' ? 'claude' : type;
                                 let finalName = `${task.baseName} (${suffix})`;
