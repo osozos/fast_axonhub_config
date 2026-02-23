@@ -102,7 +102,7 @@ includes:
   - haiku-4-[5-9]|haiku-4\\.[5-9]|4-[5-9]-haiku|4\\.[5-9]-haiku,anthropic
 
   # OpenAI GPT 5+
-  - gpt-5|gpt.*5(\\.\\d)?,openai
+  - gpt-5|gpt.*-5(\\.\\d)?,openai
   - gpt-oss,openai
 
   # Google Gemini 3+
@@ -127,7 +127,7 @@ includes:
 # 排除规则：匹配这些模式的模型会被过滤掉（可选）
 excludes:
   - think
-  - thiking
+  - thinking
   - image
   - search
 ```
