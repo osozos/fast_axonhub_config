@@ -1,11 +1,11 @@
-# 🚀 AxonHub 多渠道快速配置工具 (AxonHub Config Generator)
+# 🚀 AxonHub 快速配置工具 (AxonHub Config Generator)
 
 ![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)
 ![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)
 
-这是一个基于纯前端（HTML + 原生 JavaScript + Tailwind CSS）实现的单页应用程序。该工具旨在将杂乱的 API 渠道（Channels）配置和复杂的 LLM 模型（Models）匹配规则，自动化地转换为 **AxonHub** 标准的 JSON 配置文件（备份/恢复文件）。
+这是一个基于纯前端（HTML + 原生 JavaScript + Tailwind CSS）实现的单页应用程序。该工具旨在将杂乱的 API 渠道（Channels）配置、复杂的 LLM 模型（Models）匹配规则以及 API 访问凭证（API Keys），自动化地转换为 **AxonHub** 标准的 JSON 配置文件（备份/恢复文件）。
 
 无需部署任何后端服务，**直接双击 HTML 文件即可在浏览器中运行**，数据完全在本地处理，安全可靠。
 
@@ -19,6 +19,7 @@
   - [1. 运行方式](#1-运行方式)
   - [2. Channels 配置格式](#2-channels-配置格式)
   - [3. Models 配置格式](#3-models-配置格式)
+  - [4. API Keys 配置格式](#4-api-keys-配置格式)
 - [🛡️ 关于 CORS 跨域代理](#️-关于-cors-跨域代理)
 - [📄 输出 JSON 结构概览](#-输出-json-结构概览)
 - [🙏 鸣谢 (Acknowledgments)](#-鸣谢--acknowledgments)
@@ -30,10 +31,10 @@
 
 ### 📡 渠道配置转换 (Channels)
 *   **多格式支持**：支持通过 **YAML** 或 **CSV** 格式批量导入 API Key 和 URL，支持显式指定 `type`。
+*   **智能 URL 补全**：内置 AxonHub 官方的 `CHANNEL_CONFIGS` 映射表，根据类型（如 `deepseek_anthropic`, `zhipu` 等）自动为 Base URL 拼接正确的后缀（如 `/v1`, `/api/paas/v4` 等）。
 *   **并发与重连机制**：并发请求所有 API 的 `/v1/models` 接口获取可用模型；内置 `10s` -> `20s` -> `30s` 阶梯式超时重连机制。
 *   **智能跨域回退 (CORS)**：检测到浏览器跨域拦截时，自动无缝回退至配置的 CORS 代理地址重新发起请求。
 *   **类型与模型智能推断**：
-    *   自动识别 `openai`, `anthropic`, `gemini` 协议并补齐 `/v1` 或 `/v1beta` 等标准后缀。
     *   智能识别 `gpt-5` 及以上版本与 `codex` 模型，自动归类为 `openai_responses`。
     *   根据模型名称自动补全标签（如 `glm`, `kimi`, `deepseek`, `claude` 等）。
 
@@ -43,10 +44,14 @@
 *   **智能版本解析与全排列**：自动解析模型版本号（如将 `4-5` 转换为 `4.5`，单数字版本自动补齐 `-`），并自动生成模型名称各组件的**全排列正则匹配规则**（Associations）。
 *   **Model Card 补全**：自动填充模型的上下文长度、定价（Cost）、多模态能力（Vision/Audio）、工具调用（Tool Call）及推理能力（Reasoning）等元数据。
 
+### 🔑 访问凭证生成 (API Keys)
+*   **批量生成**：支持通过 YAML 或 CSV 批量创建 AxonHub 访问令牌。
+*   **智能校验与安全生成**：自动补齐 `ah-` 前缀；如果用户提供的密钥不符合 64 位十六进制标准，工具将使用高强度的 `crypto.getRandomValues` 自动生成安全的随机密钥。
+
 ### 💻 可视化与交互体验
-*   **双列独立输入**：Channels 和 Models 配置区域相互独立，互不干扰，逻辑清晰。
+*   **多列独立输入**：Channels、Models 和 API Keys 配置区域相互独立，互不干扰，逻辑清晰。
 *   **终端级实时日志**：内置深色日志面板，实时打印网络请求、跨域回退、重连次数及模型匹配细节。
-*   **数据统计面板**：实时展示成功数、失败数、生成的渠道数和生成的模型数。
+*   **数据统计面板**：实时展示成功数、失败数、生成的渠道数、生成的模型数以及 API Keys 数量。
 *   **一键复制**：一键将生成的标准 JSON 复制到剪贴板，直接导入 AxonHub。
 
 ---
@@ -77,7 +82,7 @@
     - sk-xxxxxx1
     - sk-xxxxxx2
   name: myapi
-  type: claudecode  # 可选：显式指定类型，跳过自动推断
+  type: claudecode  # 可选：显式指定类型，跳过自动推断，并自动匹配对应后缀
   tags:
     - 公益站
 ```
@@ -154,6 +159,23 @@ excludes:
   - search
 ```
 
+### 4. API Keys 配置格式
+支持 YAML 和 CSV 格式。如果只提供名称，系统会自动生成符合规范的高强度密钥。
+
+**YAML 格式示例：**
+```yaml
+- name: opencode
+  key: ah-b09cb09f55be265b275e8e1b4832c1eee36c6c358ecc9f6110c88d56f0ec24c7
+- name: claudecode
+```
+
+**CSV 格式示例：**
+```csv
+# 格式: name[,key]
+gemini
+codex,ah-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+```
+
 ---
 
 ## 🛡️ 关于 CORS 跨域代理
@@ -204,23 +226,22 @@ export default {
 
 ## 📄 输出 JSON 结构概览
 
-转换完成后，工具会生成包含 `version`、`timestamp`、`channels` 和 `models` 的标准 JSON：
+转换完成后，工具会生成包含 `version`、`timestamp`、`channels`、`models` 和 `api_keys` 的标准 JSON：
 
 ```json
 {
     "version": "1.1",
-    "timestamp": "2026-02-23T12:00:00.000000Z",
+    "timestamp": "2026-02-24T12:00:00.000000Z",
     "channels": [
         {
             "id": 1,
             "type": "anthropic",
-            "base_url": "https://api.example.com/v1",
+            "base_url": "https://api.example.com",
             "name": "myapi (claude)",
             "supported_models": ["claude-3-opus", "claude-3-sonnet"],
             "credentials": {
                 "apiKey": "sk-xxxxxx"
             }
-            // ... 其他标准化字段
         }
     ],
     "models": [
@@ -238,7 +259,19 @@ export default {
                     { "regex": { "pattern": ".*gpt.*-5" } }
                 ]
             }
-            // ... 其他标准化字段
+        }
+    ],
+    "api_keys": [
+        {
+            "id": 1,
+            "user_id": 1,
+            "project_id": 1,
+            "key": "ah-b09cb09f55be265b275e8e1b4832c1eee36c6c358ecc9f6110c88d56f0ec24c7",
+            "name": "opencode",
+            "type": "user",
+            "status": "enabled",
+            "scopes": ["read_channels", "write_requests"],
+            "project_name": "Default"
         }
     ]
 }
