@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Axonhub 配置转换器</title>
+    <title>AxonHub 快速配置工具</title>
     <!-- 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 引入 js-yaml 用于解析 YAML 配置 -->
@@ -11,12 +11,12 @@
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased p-6 md:p-12 min-h-screen">
     <div class="max-w-7xl mx-auto bg-white p-8 rounded-xl shadow-lg border border-gray-100">
-        <h1 class="text-3xl font-bold mb-8 text-gray-900">Axonhub 配置转换器</h1>
+        <h1 class="text-3xl font-bold mb-8 text-gray-900">AxonHub 快速配置工具</h1>
         
         <!-- 双列输入布局 -->
         <div class="flex flex-col lg:flex-row gap-8 mb-6">
             
-            <!-- Channels 配置区域 -->
+            <!-- 左侧：Channels 配置区域 -->
             <div class="flex-1 flex flex-col">
                 <label class="block text-sm font-semibold text-gray-700 mb-2">
                     Channels 配置
@@ -46,13 +46,15 @@
                 </div>
             </div>
 
-            <!-- Models 配置区域 -->
-            <div class="flex-1 flex flex-col">
-                <label class="block text-sm font-semibold text-gray-700 mb-2">
-                    Models 配置
-                    <span class="text-gray-500 font-normal ml-2">(仅支持 YAML)</span>
-                </label>
-                <textarea id="modelInput" rows="12" class="w-full h-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-shadow resize-y" placeholder="providers:
+            <!-- 右侧：Models 和 API Keys 配置区域 -->
+            <div class="flex-1 flex flex-col gap-6">
+                <!-- Models 配置 -->
+                <div class="flex flex-col">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                        Models 配置
+                        <span class="text-gray-500 font-normal ml-2">(仅支持 YAML)</span>
+                    </label>
+                    <textarea id="modelInput" rows="10" class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-shadow resize-y" placeholder="providers:
   - deepseek
   - google
   - openai
@@ -62,6 +64,22 @@ includes:
   - deepseek.*3\.[2-9]|deepseek.*3\.\d{2,},deepseek
 excludes:
   - image"></textarea>
+                </div>
+
+                <!-- API Keys 配置 -->
+                <div class="flex flex-col">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                        API Keys 配置
+                        <span class="text-gray-500 font-normal ml-2">(支持 YAML 或 CSV)</span>
+                    </label>
+                    <textarea id="apiKeyInput" rows="8" class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-shadow resize-y" placeholder="支持 YAML:
+- name: opencode
+  key: ah-b09cb09f55be265b275e8e1b4832c1eee36c6c358ecc9f6110c88d56f0ec24c7
+
+也支持 CSV (name[,key]):
+gemini
+codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
+                </div>
             </div>
         </div>
 
@@ -96,6 +114,7 @@ excludes:
             <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-red-500 mr-2"></span>失败: <span id="failCount" class="ml-1 font-bold">0</span></div>
             <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>生成渠道数: <span id="channelCount" class="ml-1 font-bold">0</span></div>
             <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-purple-500 mr-2"></span>生成模型数: <span id="modelCount" class="ml-1 font-bold">0</span></div>
+            <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-yellow-500 mr-2"></span>生成 API Keys: <span id="apiKeyCount" class="ml-1 font-bold">0</span></div>
         </div>
 
         <!-- 错误信息 -->
@@ -165,6 +184,7 @@ excludes:
         document.addEventListener('DOMContentLoaded', () => {
             const channelInput = document.getElementById('channelInput');
             const modelInput = document.getElementById('modelInput');
+            const apiKeyInput = document.getElementById('apiKeyInput');
             
             const convertBtn = document.getElementById('convertBtn');
             const loadingIcon = document.getElementById('loadingIcon');
@@ -185,6 +205,7 @@ excludes:
             const elFailCount = document.getElementById('failCount');
             const elChannelCount = document.getElementById('channelCount');
             const elModelCount = document.getElementById('modelCount');
+            const elApiKeyCount = document.getElementById('apiKeyCount');
 
             const errorContainer = document.getElementById('errorContainer');
             const errorList = document.getElementById('errorList');
@@ -227,7 +248,93 @@ excludes:
                 }
             };
 
-            // 解析 Channel 文本 (支持 YAML 或 CSV，新增 type 支持)
+            // 生成严格的 64 位十六进制字符串
+            const generateHex64 = () => {
+                const array = new Uint8Array(32);
+                window.crypto.getRandomValues(array);
+                return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+            };
+
+            // 格式化 API Key
+            const formatApiKey = (inputKey) => {
+                let cleanKey = (inputKey || '').trim();
+                if (cleanKey.startsWith('ah-')) {
+                    cleanKey = cleanKey.substring(3);
+                }
+                // 如果长度不等于 64，则重新生成
+                if (cleanKey.length !== 64) {
+                    cleanKey = generateHex64();
+                }
+                return `ah-${cleanKey}`;
+            };
+
+            // 解析 API Keys 文本 (支持 YAML 或 CSV)
+            const parseApiKeysInput = (text) => {
+                if (!text) return [];
+                try {
+                    const parsed = jsyaml.load(text);
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        const arr = Array.isArray(parsed) ? parsed : (parsed.api_keys || []);
+                        if (arr.length > 0) {
+                            return arr.map(item => ({
+                                name: String(item.name || 'default_key'),
+                                key: String(item.key || '')
+                            }));
+                        }
+                    }
+                } catch (e) {}
+
+                // CSV 回退 (name[,key])
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+                return lines.map(line => {
+                    const parts = line.split(',');
+                    const name = parts[0]?.trim() || 'default_key';
+                    const key = parts[1]?.trim() || '';
+                    return { name, key };
+                });
+            };
+
+            // 处理并生成最终的 API Keys 数组
+            const processApiKeys = (configs) => {
+                if (!configs || configs.length === 0) return [];
+                const now = getIsoTime();
+                
+                return configs.map((config, index) => {
+                    const finalKey = formatApiKey(config.key);
+                    return {
+                        id: index + 1,
+                        created_at: now,
+                        updated_at: now,
+                        user_id: 1,
+                        project_id: 1,
+                        key: finalKey,
+                        name: config.name,
+                        type: "user",
+                        status: "enabled",
+                        scopes: [
+                            "read_channels",
+                            "write_requests"
+                        ],
+                        profiles: {
+                            activeProfile: "",
+                            profiles: null
+                        },
+                        edges: {
+                            project: {
+                                id: 1,
+                                created_at: now,
+                                updated_at: now,
+                                name: "Default",
+                                description: "Default project",
+                                status: "active",
+                                edges: {}
+                            }
+                        },
+                        project_name: "Default"
+                    };
+                });
+            };
+
             const parseChannelInput = (text) => {
                 if (!text) return [];
                 try {
@@ -240,7 +347,7 @@ excludes:
                                 url: String(item.url || ''),
                                 keys: [].concat(item.keys || item.auth || item.apiKey || []),
                                 name: item.name ? String(item.name) : '',
-                                type: item.type ? String(item.type) : '', // 新增解析 type
+                                type: item.type ? String(item.type) : '',
                                 tags: [].concat(item.tags || [])
                             }));
                         }
@@ -254,7 +361,7 @@ excludes:
                     const url = parts[0]?.trim();
                     const apiKey = parts[1]?.trim() || '';
                     const name = parts[2]?.trim() || '';
-                    const type = parts[3]?.trim() || ''; // 新增解析 type
+                    const type = parts[3]?.trim() || '';
                     const tagsStr = parts[4]?.trim() || '';
                     const tags = tagsStr ? tagsStr.split('|').map(t => t.trim()) : [];
                     return { url: url, keys: [apiKey], name: name, type: type, tags: tags };
@@ -290,7 +397,6 @@ excludes:
                 return result;
             };
 
-            // 核心修复点：生成 Associations 时，对单个数字强制添加 - 前缀
             const generateAssociations = (modelIdStr) => {
                 let cleanId = modelIdStr.split('/').pop();
                 let parts = cleanId.split('-');
@@ -502,7 +608,6 @@ excludes:
                     let apiKeys = config.keys.length > 0 ? config.keys : [''];
                     let baseName = config.name ? config.name : extractName(config.url);
                     apiKeys.forEach(apiKey => {
-                        // 传入 explicitType
                         tasks.push({ url: config.url, apiKey: apiKey, baseName: baseName, explicitType: config.type, initialTags: config.tags, configIndex: configIndex });
                     });
                 });
@@ -695,9 +800,10 @@ excludes:
             convertBtn.addEventListener('click', async () => {
                 const channelText = channelInput.value.trim();
                 const modelText = modelInput.value.trim();
+                const apiKeyText = apiKeyInput.value.trim();
 
-                if (!channelText && !modelText) {
-                    alert("请至少填写 Channels 或 Models 配置！");
+                if (!channelText && !modelText && !apiKeyText) {
+                    alert("请至少填写 Channels、Models 或 API Keys 中的一项配置！");
                     return;
                 }
 
@@ -717,6 +823,7 @@ excludes:
 
                 let channelConfigs = [];
                 let modelsConfig = null;
+                let apiKeysConfig = [];
                 const errors = [];
 
                 try {
@@ -724,6 +831,7 @@ excludes:
                     if (modelText) {
                         modelsConfig = parseModelInput(modelText);
                     }
+                    apiKeysConfig = parseApiKeysInput(apiKeyText);
                 } catch (e) {
                     addLog(e.message, 'error');
                     resetUI();
@@ -736,10 +844,16 @@ excludes:
                         processModels(modelsConfig)
                     ]);
 
+                    const finalApiKeys = processApiKeys(apiKeysConfig);
+                    if (finalApiKeys.length > 0) {
+                        addLog(`成功生成 ${finalApiKeys.length} 个 API Key 配置`, 'success');
+                    }
+
                     elSuccessCount.textContent = channelsResult.successCount;
                     elFailCount.textContent = channelsResult.failCount;
                     elChannelCount.textContent = channelsResult.channels.length;
                     elModelCount.textContent = finalModels.length;
+                    elApiKeyCount.textContent = finalApiKeys.length;
                     summaryContainer.classList.remove('hidden');
 
                     if (errors.length > 0) {
@@ -755,7 +869,8 @@ excludes:
                         version: "1.1",
                         timestamp: getIsoTime(),
                         channels: channelsResult.channels,
-                        models: finalModels
+                        models: finalModels,
+                        api_keys: finalApiKeys
                     };
 
                     outputJson.value = JSON.stringify(finalOutput, null, 4);
