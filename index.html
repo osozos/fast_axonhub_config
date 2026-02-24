@@ -576,7 +576,22 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                     }
                 }
                 
-                let finalModels = Array.from(matchedModels.values());
+                let finalModelsRaw = Array.from(matchedModels.values());
+                
+                // --- 新增：根据 model_id 进行去重 ---
+                let uniqueModels = [];
+                let seenModelIds = new Set();
+                for (let model of finalModelsRaw) {
+                    if (!seenModelIds.has(model.model_id)) {
+                        seenModelIds.add(model.model_id);
+                        uniqueModels.push(model);
+                    } else {
+                        addLog(`发现重复模型 [${model.model_id}]，已自动去重`, 'warn');
+                    }
+                }
+                let finalModels = uniqueModels;
+                // -----------------------------------
+
                 finalModels.forEach((m, idx) => m.id = idx + 1);
                 addLog(`Models 匹配完毕，共生成 ${finalModels.length} 个模型配置`, 'success');
                 return finalModels;
