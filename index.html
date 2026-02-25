@@ -123,13 +123,25 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
             <ul id="errorList" class="list-disc pl-5 space-y-1 text-sm max-h-40 overflow-y-auto"></ul>
         </div>
 
-        <!-- 输出结果 -->
-        <div id="outputContainer" class="hidden mt-8">
-            <div class="flex items-center justify-between mb-2">
-                <label class="block text-sm font-semibold text-gray-700">转换结果 JSON</label>
-                <button id="copyBtn" class="bg-green-600 text-white px-4 py-1.5 rounded-md hover:bg-green-700 text-sm font-medium transition-colors shadow-sm">复制 JSON</button>
+        <!-- 输出结果区域 (两列布局) -->
+        <div class="flex flex-col lg:flex-row gap-8 mt-8">
+            <!-- AxonHub 输出 -->
+            <div id="outputContainer" class="hidden flex-1">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-semibold text-gray-700">AxonHub 配置文件 JSON</label>
+                    <button id="copyBtn" class="bg-green-600 text-white px-4 py-1.5 rounded-md hover:bg-green-700 text-sm font-medium transition-colors shadow-sm">复制 JSON</button>
+                </div>
+                <textarea id="outputJson" rows="20" class="w-full p-4 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-green-500" readonly></textarea>
             </div>
-            <textarea id="outputJson" rows="24" class="w-full p-4 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" readonly></textarea>
+
+            <!-- OpenCode 输出 -->
+            <div id="opencodeOutputContainer" class="hidden flex-1">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-semibold text-gray-700">OpenCode 配置文件 JSON</label>
+                    <button id="copyOpencodeBtn" class="bg-purple-600 text-white px-4 py-1.5 rounded-md hover:bg-purple-700 text-sm font-medium transition-colors shadow-sm">复制 OpenCode JSON</button>
+                </div>
+                <textarea id="opencodeOutputJson" rows="20" class="w-full p-4 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" readonly></textarea>
+            </div>
         </div>
     </div>
 
@@ -181,6 +193,21 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
             nanogpt: '/api/v1'
         };
 
+        // OpenCode Provider 映射配置表 (匹配官方格式)
+        const OPENCODE_PROVIDER_MAP = {
+            openai: { prefix: 'gpt', name: 'GPT', npm: '@ai-sdk/openai', url: 'http://localhost:8090/v1' },
+            anthropic: { prefix: 'claude', name: 'Claude', npm: '@ai-sdk/anthropic', url: 'http://localhost:8090/anthropic/v1' },
+            google: { prefix: 'gemini', name: 'Gemini', npm: '@ai-sdk/google', url: 'http://localhost:8090/gemini/v1beta' },
+            zai: { prefix: 'glm', name: 'GLM', npm: '@ai-sdk/openai-compatible', url: 'http://localhost:8090/v1' },
+            deepseek: { prefix: 'deepseek', name: 'DeepSeek', npm: '@ai-sdk/openai-compatible', url: 'http://localhost:8090/v1' },
+            xai: { prefix: 'grok', name: 'Grok', npm: '@ai-sdk/openai-compatible', url: 'http://localhost:8090/v1' },
+            moonshotai: { prefix: 'kimi', name: 'Kimi', npm: '@ai-sdk/openai-compatible', url: 'http://localhost:8090/v1' },
+            minimax: { prefix: 'minimax', name: 'MiniMax', npm: '@ai-sdk/openai-compatible', url: 'http://localhost:8090/v1' },
+            alibaba: { prefix: 'qwen', name: 'Qwen', npm: '@ai-sdk/openai-compatible', url: 'http://localhost:8090/v1' },
+            doubao: { prefix: 'doubao', name: 'Doubao', npm: '@ai-sdk/openai-compatible', url: 'http://localhost:8090/v1' },
+            xiaomi: { prefix: 'xiaomi', name: 'Xiaomi', npm: '@ai-sdk/openai-compatible', url: 'http://localhost:8090/v1' }
+        };
+
         document.addEventListener('DOMContentLoaded', () => {
             const channelInput = document.getElementById('channelInput');
             const modelInput = document.getElementById('modelInput');
@@ -209,9 +236,14 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
 
             const errorContainer = document.getElementById('errorContainer');
             const errorList = document.getElementById('errorList');
+            
             const outputContainer = document.getElementById('outputContainer');
             const outputJson = document.getElementById('outputJson');
             const copyBtn = document.getElementById('copyBtn');
+
+            const opencodeOutputContainer = document.getElementById('opencodeOutputContainer');
+            const opencodeOutputJson = document.getElementById('opencodeOutputJson');
+            const copyOpencodeBtn = document.getElementById('copyOpencodeBtn');
 
             useProxyCheckbox.addEventListener('change', (e) => {
                 proxyUrlInput.disabled = !e.target.checked;
@@ -833,8 +865,10 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 summaryContainer.classList.add('hidden');
                 errorContainer.classList.add('hidden');
                 outputContainer.classList.add('hidden');
+                opencodeOutputContainer.classList.add('hidden');
                 errorList.innerHTML = '';
                 outputJson.value = '';
+                opencodeOutputJson.value = '';
 
                 let channelConfigs = [];
                 let modelsConfig = null;
@@ -880,6 +914,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         errorContainer.classList.remove('hidden');
                     }
 
+                    // --- 生成 AxonHub JSON ---
                     const finalOutput = {
                         version: "1.1",
                         timestamp: getIsoTime(),
@@ -887,9 +922,106 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         models: finalModels,
                         api_keys: finalApiKeys
                     };
-
                     outputJson.value = JSON.stringify(finalOutput, null, 4);
                     outputContainer.classList.remove('hidden');
+
+                    // --- 生成 OpenCode JSON (官方标准结构) ---
+                    if (finalModels.length > 0) {
+                        const opencodeConfig = {
+                            "$schema": "https://opencode.ai/config.json",
+                            "autoupdate": false,
+                            "share": "disabled",
+                            "plugin":[
+                                "opencode-axonhub-tracing"
+                            ],
+                            "provider": {}
+                        };
+                        
+                        // 查找 name 为 opencode 的 apiKey
+                        const opencodeKeyObj = finalApiKeys.find(k => k.name === 'opencode');
+                        const opencodeKey = opencodeKeyObj ? opencodeKeyObj.key : undefined;
+
+                        finalModels.forEach(model => {
+                            let dev = (model.developer || '').toLowerCase();
+                            if (dev === 'openai_responses') dev = 'openai';
+
+                            const pInfo = OPENCODE_PROVIDER_MAP[dev] || {
+                                prefix: dev,
+                                name: dev.charAt(0).toUpperCase() + dev.slice(1),
+                                npm: '@ai-sdk/openai-compatible',
+                                url: 'http://localhost:8090/v1'
+                            };
+
+                            const providerKey = `axonhub-${pInfo.prefix}`;
+
+                            if (!opencodeConfig.provider[providerKey]) {
+                                opencodeConfig.provider[providerKey] = {
+                                    name: `AxonHub ${pInfo.name}`,
+                                    npm: pInfo.npm,
+                                    options: {
+                                        baseURL: pInfo.url
+                                    },
+                                    models: {}
+                                };
+                                if (opencodeKey) {
+                                    opencodeConfig.provider[providerKey].options.apiKey = opencodeKey;
+                                }
+                            }
+
+                            // 提取模型基本数据
+                            let modelEntry = {
+                                name: model.name,
+                                limit: model.model_card.limit,
+                                modalities: model.model_card.modalities
+                            };
+
+                            // 智能注入 Variants (仅当支持 reasoning 时)
+                            if (model.model_card && model.model_card.reasoning && model.model_card.reasoning.supported) {
+                                if (pInfo.npm === '@ai-sdk/openai') {
+                                    modelEntry.variants = {};
+                                    
+                                    // 判断是否需要注入 xhigh
+                                    let includeXHigh = false;
+                                    if (model.model_id.toLowerCase().includes('codex')) {
+                                        includeXHigh = true;
+                                    } else {
+                                        const match = model.model_id.match(/gpt-(\d+(?:\.\d+)?)/i);
+                                        if (match && parseFloat(match[1]) >= 5.2) {
+                                            includeXHigh = true;
+                                        }
+                                    }
+
+                                    // 严格按照 xhigh -> high -> medium -> low 降序插入
+                                    if (includeXHigh) {
+                                        modelEntry.variants.xhigh = { reasoningEffort: "xhigh", reasoningSummary: "auto", textVerbosity: "high" };
+                                    }
+                                    modelEntry.variants.high = { reasoningEffort: "high", reasoningSummary: "auto", textVerbosity: "high" };
+                                    modelEntry.variants.medium = { reasoningEffort: "medium", reasoningSummary: "auto", textVerbosity: "medium" };
+                                    modelEntry.variants.low = { reasoningEffort: "low", reasoningSummary: "auto", textVerbosity: "low" };
+
+                                } else if (pInfo.npm === '@ai-sdk/google') {
+                                    modelEntry.variants = {
+                                        high: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
+                                        medium: { thinkingConfig: { includeThoughts: true, thinkingLevel: "medium" } },
+                                        low: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } }
+                                    };
+                                } else if (pInfo.npm === '@ai-sdk/anthropic') {
+                                    modelEntry.variants = {
+                                        high: { thinking: { budgetTokens: 18000, type: "enabled" } },
+                                        medium: { thinking: { budgetTokens: 13000, type: "enabled" } },
+                                        low: { thinking: { budgetTokens: 5000, type: "enabled" } }
+                                    };
+                                }
+                            }
+
+                            opencodeConfig.provider[providerKey].models[model.model_id] = modelEntry;
+                        });
+
+                        opencodeOutputJson.value = JSON.stringify(opencodeConfig, null, 4);
+                        opencodeOutputContainer.classList.remove('hidden');
+                        addLog('成功生成 OpenCode 配置文件', 'success');
+                    }
+
                     addLog('所有转换任务完成！', 'success');
                 } catch (e) {
                     addLog(`执行过程中发生严重错误: ${e.message}`, 'error');
@@ -914,6 +1046,21 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                     setTimeout(() => {
                         copyBtn.textContent = originalText;
                         copyBtn.classList.replace('bg-teal-600', 'bg-green-600');
+                    }, 2000);
+                }).catch(err => {
+                    alert('复制失败，请手动复制');
+                });
+            });
+
+            copyOpencodeBtn.addEventListener('click', () => {
+                opencodeOutputJson.select();
+                navigator.clipboard.writeText(opencodeOutputJson.value).then(() => {
+                    const originalText = copyOpencodeBtn.textContent;
+                    copyOpencodeBtn.textContent = '已复制 OpenCode!';
+                    copyOpencodeBtn.classList.replace('bg-purple-600', 'bg-pink-600');
+                    setTimeout(() => {
+                        copyOpencodeBtn.textContent = originalText;
+                        copyOpencodeBtn.classList.replace('bg-pink-600', 'bg-purple-600');
                     }, 2000);
                 }).catch(err => {
                     alert('复制失败，请手动复制');
