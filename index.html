@@ -22,7 +22,7 @@
                     Channels 配置
                     <span class="text-gray-500 font-normal ml-2">(支持 YAML 或 CSV)</span>
                 </label>
-                <textarea id="channelInput" rows="12" class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-shadow resize-y" placeholder="支持 YAML:
+                <textarea id="channelInput" rows="16" class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-shadow resize-y" placeholder="支持 YAML:
 - url: https://api.example.com
   keys: [sk-xxxxxx]
   type: claudecode
@@ -54,7 +54,7 @@
                         Models 配置
                         <span class="text-gray-500 font-normal ml-2">(仅支持 YAML)</span>
                     </label>
-                    <textarea id="modelInput" rows="10" class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-shadow resize-y" placeholder="providers:
+                    <textarea id="modelInput" rows="12" class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-shadow resize-y" placeholder="providers:
   - deepseek
   - google
   - openai
@@ -63,7 +63,9 @@ includes:
   - gemini.*3|gemini-3,google
   - deepseek.*3\.[2-9]|deepseek.*3\.\d{2,},deepseek
 excludes:
-  - image"></textarea>
+  - image
+variants:
+  - claude-opus-4.6,thinking"></textarea>
                 </div>
 
                 <!-- API Keys 配置 -->
@@ -123,24 +125,33 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
             <ul id="errorList" class="list-disc pl-5 space-y-1 text-sm max-h-40 overflow-y-auto"></ul>
         </div>
 
-        <!-- 输出结果区域 (两列布局) -->
-        <div class="flex flex-col lg:flex-row gap-8 mt-8">
+        <!-- 输出结果区域 (动态列布局) -->
+        <div id="allOutputsContainer" class="hidden flex-col lg:flex-row gap-8 mt-8">
             <!-- AxonHub 输出 -->
-            <div id="outputContainer" class="hidden flex-1">
+            <div id="outputContainer" class="hidden flex-1 flex-col">
                 <div class="flex items-center justify-between mb-2">
-                    <label class="block text-sm font-semibold text-gray-700">AxonHub 配置文件 JSON</label>
+                    <label class="block text-sm font-semibold text-gray-700">AxonHub 配置</label>
                     <button id="copyBtn" class="bg-green-600 text-white px-4 py-1.5 rounded-md hover:bg-green-700 text-sm font-medium transition-colors shadow-sm">复制 JSON</button>
                 </div>
                 <textarea id="outputJson" rows="20" class="w-full p-4 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-green-500" readonly></textarea>
             </div>
 
             <!-- OpenCode 输出 -->
-            <div id="opencodeOutputContainer" class="hidden flex-1">
+            <div id="opencodeOutputContainer" class="hidden flex-1 flex-col">
                 <div class="flex items-center justify-between mb-2">
-                    <label class="block text-sm font-semibold text-gray-700">OpenCode 配置文件 JSON</label>
-                    <button id="copyOpencodeBtn" class="bg-purple-600 text-white px-4 py-1.5 rounded-md hover:bg-purple-700 text-sm font-medium transition-colors shadow-sm">复制 OpenCode JSON</button>
+                    <label class="block text-sm font-semibold text-gray-700">OpenCode 配置</label>
+                    <button id="copyOpencodeBtn" class="bg-purple-600 text-white px-4 py-1.5 rounded-md hover:bg-purple-700 text-sm font-medium transition-colors shadow-sm">复制 JSON</button>
                 </div>
                 <textarea id="opencodeOutputJson" rows="20" class="w-full p-4 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" readonly></textarea>
+            </div>
+
+            <!-- Oh My OpenCode 输出 -->
+            <div id="ohMyOpencodeOutputContainer" class="hidden flex-1 flex-col">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-semibold text-gray-700">Oh My OpenCode 配置</label>
+                    <button id="copyOhMyOpencodeBtn" class="bg-indigo-600 text-white px-4 py-1.5 rounded-md hover:bg-indigo-700 text-sm font-medium transition-colors shadow-sm">复制 JSON</button>
+                </div>
+                <textarea id="ohMyOpencodeOutputJson" rows="20" class="w-full p-4 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" readonly></textarea>
             </div>
         </div>
     </div>
@@ -212,18 +223,18 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
             const channelInput = document.getElementById('channelInput');
             const modelInput = document.getElementById('modelInput');
             const apiKeyInput = document.getElementById('apiKeyInput');
-            
+
             const convertBtn = document.getElementById('convertBtn');
             const loadingIcon = document.getElementById('loadingIcon');
             const btnText = document.getElementById('btnText');
-            
+
             const useProxyCheckbox = document.getElementById('useProxy');
             const proxyUrlInput = document.getElementById('proxyUrl');
 
             const progressContainer = document.getElementById('progressContainer');
             const progressBar = document.getElementById('progressBar');
             const progressText = document.getElementById('progressText');
-            
+
             const logContainer = document.getElementById('logContainer');
             const logList = document.getElementById('logList');
 
@@ -236,7 +247,8 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
 
             const errorContainer = document.getElementById('errorContainer');
             const errorList = document.getElementById('errorList');
-            
+
+            const allOutputsContainer = document.getElementById('allOutputsContainer');
             const outputContainer = document.getElementById('outputContainer');
             const outputJson = document.getElementById('outputJson');
             const copyBtn = document.getElementById('copyBtn');
@@ -244,6 +256,10 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
             const opencodeOutputContainer = document.getElementById('opencodeOutputContainer');
             const opencodeOutputJson = document.getElementById('opencodeOutputJson');
             const copyOpencodeBtn = document.getElementById('copyOpencodeBtn');
+
+            const ohMyOpencodeOutputContainer = document.getElementById('ohMyOpencodeOutputContainer');
+            const ohMyOpencodeOutputJson = document.getElementById('ohMyOpencodeOutputJson');
+            const copyOhMyOpencodeBtn = document.getElementById('copyOhMyOpencodeBtn');
 
             useProxyCheckbox.addEventListener('change', (e) => {
                 proxyUrlInput.disabled = !e.target.checked;
@@ -314,7 +330,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                             }));
                         }
                     }
-                } catch (e) {}
+                } catch (e) { }
 
                 // CSV 回退 (name[,key])
                 const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
@@ -330,7 +346,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
             const processApiKeys = (configs) => {
                 if (!configs || configs.length === 0) return [];
                 const now = getIsoTime();
-                
+
                 return configs.map((config, index) => {
                     const finalKey = formatApiKey(config.key);
                     return {
@@ -384,7 +400,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                             }));
                         }
                     }
-                } catch (e) {}
+                } catch (e) { }
 
                 // CSV 回退 (URL,apiKey[,name[,type[,tags]]])
                 const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
@@ -433,21 +449,21 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 let cleanId = modelIdStr.split('/').pop();
                 let parts = cleanId.split('-');
                 let components = [];
-                
+
                 for (let i = 0; i < parts.length; i++) {
                     let curr = parts[i];
                     // 规则1: {digit}-{digit} 转 {digit}.{digit} (如 4-5 转 4.5)
-                    if (/^\d+$/.test(curr) && i + 1 < parts.length && /^\d+$/.test(parts[i+1])) {
-                        components.push(`${curr}.${parts[i+1]}`);
+                    if (/^\d+$/.test(curr) && i + 1 < parts.length && /^\d+$/.test(parts[i + 1])) {
+                        components.push(`${curr}.${parts[i + 1]}`);
                         i++;
-                    } 
+                    }
                     // 规则2: 单个数字或字母+单个数字不排末尾，与后面组件用 - 连接
                     else if ((/^\d$/.test(curr) || /^[a-zA-Z]\d$/.test(curr)) && i + 1 < parts.length) {
                         // 【修复】如果是单个数字，加上前缀 - 防止错误匹配 (如 .*5 匹配到 4.5)
                         let prefix = /^\d$/.test(curr) ? '-' : '';
-                        components.push(`${prefix}${curr}-${parts[i+1]}`);
+                        components.push(`${prefix}${curr}-${parts[i + 1]}`);
                         i++;
-                    } 
+                    }
                     // 规则3: 其他正常保留
                     else {
                         // 【修复】如果是末尾的单个数字，同样加上前缀 -
@@ -458,18 +474,18 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         }
                     }
                 }
-                
+
                 let base = components[0];
                 let rest = components.slice(1);
                 let perms = getPermutations(rest);
-                
+
                 let patterns = perms.map(p => {
                     return '.*' + [base, ...p].join('.*');
                 });
-                
+
                 patterns = [...new Set(patterns)];
                 let priority = Math.max(5, patterns.length);
-                
+
                 return patterns.map(p => ({
                     type: "regex",
                     priority: priority,
@@ -487,7 +503,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 let cleanId = mId.split('/').pop();
                 let icon = providerData.lobeIcon ? providerData.lobeIcon.split('.')[0] : providerData.name;
                 let cost = modelData.cost || {};
-                
+
                 return {
                     id: 0,
                     created_at: now,
@@ -528,7 +544,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
 
             const processModels = async (modelsConfig) => {
                 if (!modelsConfig || !modelsConfig.includes) return [];
-                
+
                 addLog('开始获取 LLM 元数据...', 'info');
                 let metadata;
                 try {
@@ -547,26 +563,26 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         return [];
                     }
                 }
-                
+
                 const providersList = modelsConfig.providers || Object.keys(metadata);
                 const excludes = (modelsConfig.excludes || []).map(e => {
-                    try { return new RegExp(e, 'i'); } catch(err) { return null; }
+                    try { return new RegExp(e, 'i'); } catch (err) { return null; }
                 }).filter(Boolean);
-                
+
                 let matchedModels = new Map();
                 const now = getIsoTime();
-                
+
                 for (let rule of modelsConfig.includes) {
                     let patternStr = rule.trim();
                     let ruleProvider = null;
-                    
+
                     // 安全提取 provider，防止带有 {2,} 的正则被逗号错误截断
                     const match = rule.match(/^(.*),([a-zA-Z0-9_-]+)$/);
                     if (match) {
                         patternStr = match[1].trim();
                         ruleProvider = match[2].trim();
                     }
-                    
+
                     let regex;
                     try {
                         regex = new RegExp(patternStr, 'i');
@@ -574,7 +590,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         addLog(`跳过无效的正则表达式: ${patternStr}`, 'error');
                         continue;
                     }
-                    
+
                     let foundAny = false;
                     const searchAndAdd = (providerKey, overrideDeveloper) => {
                         let pData = metadata[providerKey];
@@ -593,7 +609,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         }
                         return foundInProvider;
                     };
-                    
+
                     if (ruleProvider) {
                         searchAndAdd(ruleProvider, ruleProvider);
                         if (!foundAny) {
@@ -607,9 +623,9 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         }
                     }
                 }
-                
+
                 let finalModelsRaw = Array.from(matchedModels.values());
-                
+
                 // --- 新增：根据 model_id 进行去重 ---
                 let uniqueModels = [];
                 let seenModelIds = new Set();
@@ -621,9 +637,44 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         addLog(`发现重复模型 [${model.model_id}]，已自动去重`, 'warn');
                     }
                 }
-                let finalModels = uniqueModels;
+
+                // --- 新增：处理 variants 变体 ---
+                if (modelsConfig.variants && Array.isArray(modelsConfig.variants)) {
+                    let newVariants = [];
+                    for (let rule of modelsConfig.variants) {
+                        let parts = rule.split(',');
+                        if (parts.length < 2) continue;
+                        let patternStr = parts[0].trim();
+                        let variantSuffix = parts[1].trim();
+
+                        let regex;
+                        try {
+                            regex = new RegExp(patternStr, 'i');
+                        } catch (e) {
+                            addLog(`跳过无效的 variant 正则表达式: ${patternStr}`, 'error');
+                            continue;
+                        }
+
+                        for (let model of uniqueModels) {
+                            if (regex.test(model.model_id)) {
+                                let newModelId = `${model.model_id}-${variantSuffix}`;
+                                if (!seenModelIds.has(newModelId)) {
+                                    seenModelIds.add(newModelId);
+                                    let newModel = JSON.parse(JSON.stringify(model));
+                                    newModel.model_id = newModelId;
+                                    newModel.name = `${model.name} ${variantSuffix}`;
+                                    newModel.settings.associations = generateAssociations(newModelId);
+                                    newVariants.push(newModel);
+                                    addLog(`生成模型变体: ${newModelId}`, 'info');
+                                }
+                            }
+                        }
+                    }
+                    uniqueModels.push(...newVariants);
+                }
                 // -----------------------------------
 
+                let finalModels = uniqueModels;
                 finalModels.forEach((m, idx) => m.id = idx + 1);
                 addLog(`Models 匹配完毕，共生成 ${finalModels.length} 个模型配置`, 'success');
                 return finalModels;
@@ -675,10 +726,10 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                     baseUrl = baseUrl.replace(/\/$/, '');
                     if (baseUrl.endsWith('/v1')) baseUrl = baseUrl.substring(0, baseUrl.length - 3);
                     if (baseUrl.endsWith('/v1beta')) baseUrl = baseUrl.substring(0, baseUrl.length - 7);
-                    
+
                     let targetUrl = baseUrl + '/v1/models';
                     let needsProxy = false;
-                    const timeouts = [10000, 20000, 30000]; 
+                    const timeouts = [10000, 20000, 30000];
                     const options = { headers: { 'Authorization': `Bearer ${task.apiKey}`, 'Content-Type': 'application/json' } };
 
                     try {
@@ -765,11 +816,11 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                             for (const [type, modelsSet] of Object.entries(typeGroups)) {
                                 if (modelsSet.size === 0) continue;
                                 const supported_models = Array.from(modelsSet).sort();
-                                
+
                                 let safeUrl = task.url.startsWith('http') ? task.url : 'https://' + task.url;
                                 let origin = new URL(safeUrl).origin;
                                 let finalBaseUrl = origin;
-                                
+
                                 // 核心：根据 CHANNEL_SUFFIXES 映射表自动拼接后缀
                                 if (CHANNEL_SUFFIXES.hasOwnProperty(type)) {
                                     finalBaseUrl += CHANNEL_SUFFIXES[type];
@@ -844,6 +895,111 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 return { channels: finalChannels, successCount, failCount };
             };
 
+            // 智能生成 Oh My OpenCode 配置文件
+            const generateOhMyOpenCodeConfig = (opencodeConfig) => {
+                if (!opencodeConfig || !opencodeConfig.provider) return null;
+
+                const availableModels = [];
+                for (const [providerKey, providerData] of Object.entries(opencodeConfig.provider)) {
+                    if (!providerData.models) continue;
+                    for (const [modelId, modelData] of Object.entries(providerData.models)) {
+                        availableModels.push({
+                            fullId: `${providerKey}/${modelId}`,
+                            model_id: modelId,
+                            variants: modelData.variants ? Object.keys(modelData.variants) : []
+                        });
+                    }
+                }
+
+                if (availableModels.length === 0) return null;
+
+                // 智能匹配模型并处理 Variant 降级
+                const findModel = (patterns, preferredVariant, temp) => {
+                    for (let pattern of patterns) {
+                        const regex = new RegExp(pattern, 'i');
+                        const matched = availableModels.find(m => regex.test(m.model_id));
+                        if (matched) {
+                            let result = { model: matched.fullId };
+                            if (temp !== undefined) result.temperature = temp;
+
+                            if (preferredVariant) {
+                                if (matched.variants.includes(preferredVariant)) {
+                                    result.variant = preferredVariant;
+                                } else if ((preferredVariant === 'max' || preferredVariant === 'xhigh') && matched.variants.includes('high')) {
+                                    result.variant = 'high';
+                                }
+                            }
+                            return result;
+                        }
+                    }
+                    return undefined;
+                };
+
+                const config = {
+                    "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
+                    "agents": {},
+                    "categories": {}
+                };
+
+                // Agents 分配 (优先匹配高版本，最后兜底泛匹配)
+                const sisyphus = findModel(['claude.*opus.*4.6', 'kimi.*k2.5', 'glm.*4.7', 'gpt.*5.3.*codex', 'gemini.*3.1.*pro', 'gemini.*3.*pro', 'claude.*opus', 'kimi', 'glm', 'gpt.*codex', 'gemini.*pro'], null, 0.1);
+                if (sisyphus) config.agents.sisyphus = sisyphus;
+
+                const atlas = findModel(['claude.*sonnet.*4.5', 'kimi.*k2.5', 'gpt.*5.2', 'gemini.*3.1.*pro', 'gemini.*3.*pro', 'claude.*sonnet', 'kimi', 'gemini.*pro'], null, 0.1);
+                if (atlas) config.agents.atlas = atlas;
+
+                const prometheus = findModel(['claude.*opus.*4.6', 'kimi.*k2.5', 'gpt.*5.2', 'claude.*opus', 'kimi'], null, 0.1);
+                if (prometheus) config.agents.prometheus = prometheus;
+
+                const metis = findModel(['claude.*opus.*4.6', 'kimi.*k2.5', 'gpt.*5.2', 'claude.*opus', 'kimi'], 'max', 0.3);
+                if (metis) config.agents.metis = metis;
+
+                const momus = findModel(['gpt.*5.2', 'claude.*opus.*4.6', 'gemini.*3.1.*pro', 'gemini.*3.*pro', 'claude.*opus', 'gemini.*pro'], 'medium', 0.1);
+                if (momus) config.agents.momus = momus;
+
+                const hephaestus = findModel(['gpt.*5.3.*codex', 'gpt.*5.2.*codex', 'gpt.*codex'], null, 0.1);
+                if (hephaestus) config.agents.hephaestus = hephaestus;
+
+                const oracle = findModel(['gpt.*5.2', 'gemini.*3.1.*pro', 'gemini.*3.*pro', 'claude.*opus.*4.6', 'claude.*opus', 'gemini.*pro'], 'high', 0.1);
+                if (oracle) config.agents.oracle = oracle;
+
+                const librarian = findModel(['glm.*4.7', 'gpt.*5.3.*codex.*spark', 'gemini.*3.*flash', 'glm', 'gemini.*flash']);
+                if (librarian) config.agents.librarian = librarian;
+
+                const explore = findModel(['gpt.*5.3.*codex.*spark', 'grok.*code.*fast.*1', 'claude.*haiku.*4.5', 'gpt.*5.*mini', 'gpt.*5.*nano', 'grok.*code.*fast', 'claude.*haiku']);
+                if (explore) config.agents.explore = explore;
+
+                const multimodalLooker = findModel(['gemini.*3.1.*pro', 'gemini.*3.*pro', 'gemini.*3.*flash', 'kimi.*k2.5', 'gemini.*pro', 'gemini.*flash', 'kimi']);
+                if (multimodalLooker) config.agents["multimodal-looker"] = multimodalLooker;
+
+                // Categories 分配
+                const quick = findModel(['gpt.*5.3.*codex.*spark', 'claude.*haiku.*4.5', 'gemini.*3.*flash', 'gpt.*5.*nano', 'claude.*haiku', 'gemini.*flash'], null, 0.1);
+                if (quick) config.categories.quick = quick;
+
+                const deep = findModel(['gpt.*5.3.*codex', 'claude.*opus.*4.6', 'gemini.*3.1.*pro', 'gemini.*3.*pro', 'gpt.*codex', 'claude.*opus', 'gemini.*pro'], 'medium', 0.1);
+                if (deep) config.categories.deep = deep;
+
+                const ultrabrain = findModel(['gpt.*5.3.*codex', 'gpt.*5.2.*codex', 'gpt.*codex'], 'xhigh', 0.1);
+                if (ultrabrain) config.categories.ultrabrain = ultrabrain;
+
+                const visual = findModel(['gemini.*3.1.*pro', 'gemini.*3.*pro', 'glm.*5', 'claude.*opus.*4.6', 'gemini.*pro', 'glm', 'claude.*opus'], null, 0.1);
+                if (visual) config.categories["visual-engineering"] = visual;
+
+                const writing = findModel(['gemini.*3.1.*pro', 'gemini.*3.*pro', 'glm.*4.7', 'kimi.*k2.5', 'gemini.*3.*flash', 'claude.*sonnet.*4.5', 'gemini.*pro', 'glm', 'kimi', 'gemini.*flash', 'claude.*sonnet'], null, 0.2);
+                if (writing) config.categories.writing = writing;
+
+                const unspecLow = findModel(['claude.*sonnet.*4.5', 'claude.*sonnet'], null, 0.1);
+                if (unspecLow) config.categories["unspecified-low"] = unspecLow;
+
+                const unspecHigh = findModel(['claude.*opus.*4.6', 'claude.*opus'], 'max', 0.1);
+                if (unspecHigh) config.categories["unspecified-high"] = unspecHigh;
+
+                if (Object.keys(config.agents).length === 0) delete config.agents;
+                if (Object.keys(config.categories).length === 0) delete config.categories;
+
+                return config;
+            };
+
             convertBtn.addEventListener('click', async () => {
                 const channelText = channelInput.value.trim();
                 const modelText = modelInput.value.trim();
@@ -857,18 +1013,28 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 convertBtn.disabled = true;
                 loadingIcon.classList.remove('hidden');
                 btnText.textContent = '正在处理数据...';
-                
+
                 logContainer.classList.remove('hidden');
                 logList.innerHTML = '';
                 addLog('任务已启动，开始解析配置...', 'info');
 
                 summaryContainer.classList.add('hidden');
                 errorContainer.classList.add('hidden');
+
+                // 隐藏所有输出容器
+                allOutputsContainer.classList.add('hidden');
+                allOutputsContainer.classList.remove('flex');
                 outputContainer.classList.add('hidden');
+                outputContainer.classList.remove('flex');
                 opencodeOutputContainer.classList.add('hidden');
+                opencodeOutputContainer.classList.remove('flex');
+                ohMyOpencodeOutputContainer.classList.add('hidden');
+                ohMyOpencodeOutputContainer.classList.remove('flex');
+
                 errorList.innerHTML = '';
                 outputJson.value = '';
                 opencodeOutputJson.value = '';
+                ohMyOpencodeOutputJson.value = '';
 
                 let channelConfigs = [];
                 let modelsConfig = null;
@@ -886,7 +1052,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                     resetUI();
                     return;
                 }
-                
+
                 try {
                     const [channelsResult, finalModels] = await Promise.all([
                         processChannels(channelConfigs, errors),
@@ -923,20 +1089,25 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         api_keys: finalApiKeys
                     };
                     outputJson.value = JSON.stringify(finalOutput, null, 4);
+
+                    allOutputsContainer.classList.remove('hidden');
+                    allOutputsContainer.classList.add('flex');
                     outputContainer.classList.remove('hidden');
+                    outputContainer.classList.add('flex');
 
                     // --- 生成 OpenCode JSON (官方标准结构) ---
+                    let opencodeConfig = null;
                     if (finalModels.length > 0) {
-                        const opencodeConfig = {
+                        opencodeConfig = {
                             "$schema": "https://opencode.ai/config.json",
                             "autoupdate": false,
                             "share": "disabled",
-                            "plugin":[
+                            "plugin": [
                                 "opencode-axonhub-tracing"
                             ],
                             "provider": {}
                         };
-                        
+
                         // 查找 name 为 opencode 的 apiKey
                         const opencodeKeyObj = finalApiKeys.find(k => k.name === 'opencode');
                         const opencodeKey = opencodeKeyObj ? opencodeKeyObj.key : undefined;
@@ -979,7 +1150,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                             if (model.model_card && model.model_card.reasoning && model.model_card.reasoning.supported) {
                                 if (pInfo.npm === '@ai-sdk/openai') {
                                     modelEntry.variants = {};
-                                    
+
                                     // 判断是否需要注入 xhigh
                                     let includeXHigh = false;
                                     if (model.model_id.toLowerCase().includes('codex')) {
@@ -1019,7 +1190,17 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
 
                         opencodeOutputJson.value = JSON.stringify(opencodeConfig, null, 4);
                         opencodeOutputContainer.classList.remove('hidden');
+                        opencodeOutputContainer.classList.add('flex');
                         addLog('成功生成 OpenCode 配置文件', 'success');
+
+                        // --- 生成 Oh My OpenCode JSON ---
+                        const ohMyOpencodeConfig = generateOhMyOpenCodeConfig(opencodeConfig);
+                        if (ohMyOpencodeConfig) {
+                            ohMyOpencodeOutputJson.value = JSON.stringify(ohMyOpencodeConfig, null, 4);
+                            ohMyOpencodeOutputContainer.classList.remove('hidden');
+                            ohMyOpencodeOutputContainer.classList.add('flex');
+                            addLog('成功生成 Oh My OpenCode 配置文件', 'success');
+                        }
                     }
 
                     addLog('所有转换任务完成！', 'success');
@@ -1056,11 +1237,26 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 opencodeOutputJson.select();
                 navigator.clipboard.writeText(opencodeOutputJson.value).then(() => {
                     const originalText = copyOpencodeBtn.textContent;
-                    copyOpencodeBtn.textContent = '已复制 OpenCode!';
+                    copyOpencodeBtn.textContent = '已复制!';
                     copyOpencodeBtn.classList.replace('bg-purple-600', 'bg-pink-600');
                     setTimeout(() => {
                         copyOpencodeBtn.textContent = originalText;
                         copyOpencodeBtn.classList.replace('bg-pink-600', 'bg-purple-600');
+                    }, 2000);
+                }).catch(err => {
+                    alert('复制失败，请手动复制');
+                });
+            });
+
+            copyOhMyOpencodeBtn.addEventListener('click', () => {
+                ohMyOpencodeOutputJson.select();
+                navigator.clipboard.writeText(ohMyOpencodeOutputJson.value).then(() => {
+                    const originalText = copyOhMyOpencodeBtn.textContent;
+                    copyOhMyOpencodeBtn.textContent = '已复制!';
+                    copyOhMyOpencodeBtn.classList.replace('bg-indigo-600', 'bg-pink-600');
+                    setTimeout(() => {
+                        copyOhMyOpencodeBtn.textContent = originalText;
+                        copyOhMyOpencodeBtn.classList.replace('bg-pink-600', 'bg-indigo-600');
                     }, 2000);
                 }).catch(err => {
                     alert('复制失败，请手动复制');
