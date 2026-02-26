@@ -5,7 +5,7 @@
 ![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)
 
-这是一个基于纯前端（HTML + 原生 JavaScript + Tailwind CSS）实现的单页应用程序。该工具旨在将杂乱的 API 渠道（Channels）配置、复杂的 LLM 模型（Models）匹配规则以及 API 访问凭证（API Keys），自动化地转换为 **AxonHub** 标准的 JSON 配置文件（备份/恢复文件）。
+这是一个基于纯前端（HTML + 原生 JavaScript + Tailwind CSS）实现的单页应用程序。该工具旨在将杂乱的 API 渠道（Channels）配置、复杂的 LLM 模型（Models）匹配规则以及 API 访问凭证（API Keys），自动化地转换为 **AxonHub**、**OpenCode** 以及 **Oh My OpenCode** 标准的 JSON 配置文件。
 
 无需部署任何后端服务，**直接双击 HTML 文件即可在浏览器中运行**，数据完全在本地处理，安全可靠。
 
@@ -21,7 +21,7 @@
   - [3. Models 配置格式](#3-models-配置格式)
   - [4. API Keys 配置格式](#4-api-keys-配置格式)
 - [🛡️ 关于 CORS 跨域代理](#️-关于-cors-跨域代理)
-- [📄 输出 JSON 结构概览](#-输出-json-结构概览)
+- [📄 输出配置概览](#-输出配置概览)
 - [🙏 鸣谢 (Acknowledgments)](#-鸣谢--acknowledgments)
 - [📜 开源证书 (License)](#-开源证书--license)
 
@@ -41,6 +41,7 @@
 ### 🧠 模型元数据生成 (Models)
 *   **云端元数据同步**：自动从 Cloudflare Pages 获取最新的 LLM 元数据（失败时自动回退至 GitHub Pages）。
 *   **高级正则匹配**：支持通过 YAML 配置 `includes` 和 `excludes` 正则表达式批量筛选模型。
+*   **自定义变体 (Variants)**：支持通过正则匹配为特定模型生成自定义变体（如为 `claude-opus-4.6` 自动生成 `claude-opus-4.6-thinking`）。
 *   **智能版本解析与全排列**：自动解析模型版本号（如将 `4-5` 转换为 `4.5`，单数字版本自动补齐 `-`），并自动生成模型名称各组件的**全排列正则匹配规则**（Associations）。
 *   **Model Card 补全**：自动填充模型的上下文长度、定价（Cost）、多模态能力（Vision/Audio）、工具调用（Tool Call）及推理能力（Reasoning）等元数据。
 
@@ -48,11 +49,15 @@
 *   **批量生成**：支持通过 YAML 或 CSV 批量创建 AxonHub 访问令牌。
 *   **智能校验与安全生成**：自动补齐 `ah-` 前缀；如果用户提供的密钥不符合 64 位十六进制标准，工具将使用高强度的 `crypto.getRandomValues` 自动生成安全的随机密钥。
 
+### 🤖 OpenCode 生态完美适配
+*   **OpenCode 配置生成**：自动提取并转换出专为 OpenCode 定制的 `opencode.json`，智能匹配 SDK (`@ai-sdk/openai`, `@ai-sdk/anthropic` 等) 并注入对应的 `variants` (如 `reasoningEffort`, `thinkingConfig`)。
+*   **Oh My OpenCode 智能编排**：基于生成的模型，自动分配 `sisyphus`, `atlas`, `oracle` 等 Agent，以及 `quick`, `deep`, `visual-engineering` 等 Categories，完美兼容 Oh My OpenCode 官方规范。
+
 ### 💻 可视化与交互体验
 *   **多列独立输入**：Channels、Models 和 API Keys 配置区域相互独立，互不干扰，逻辑清晰。
 *   **终端级实时日志**：内置深色日志面板，实时打印网络请求、跨域回退、重连次数及模型匹配细节。
 *   **数据统计面板**：实时展示成功数、失败数、生成的渠道数、生成的模型数以及 API Keys 数量。
-*   **一键复制**：一键将生成的标准 JSON 复制到剪贴板，直接导入 AxonHub。
+*   **一键复制**：一键将生成的标准 JSON 复制到剪贴板，直接导入 AxonHub、OpenCode、Oh My OpenCode。
 
 ---
 
@@ -157,6 +162,10 @@ excludes:
   - thinking
   - image
   - search
+# 变体规则，自定义模型后缀，用以匹配服务商变体（可选）
+variants:
+  # 格式: "正则匹配规则,变体后缀"
+  - .*opus.*4.6,thinking
 ```
 
 ### 4. API Keys 配置格式
@@ -281,10 +290,15 @@ export default {
 
 ## 🙏 鸣谢 | Acknowledgments
 
-本项目的诞生离不开以下优秀的开源项目、数据源与 AI 助手的支持，在此表示诚挚的感谢：
+本项目的诞生与完善离不开以下优秀的开源项目、社区讨论与 AI 助手的支持，在此表示诚挚的感谢：
 
 *   **[AxonHub](https://github.com/looplj/axonhub)** - 强大的 AI 网关，让你无需改动一行代码即可无缝切换模型供应商。
 *   **[LLM 元数据 (LLM Metadata)](https://github.com/basellm/llm-metadata)** - 提供模型基础数据的轻量级静态 API。
+*   **[Oh My OpenCode](https://github.com/code-yeongyu/oh-my-opencode)** - OpenCode 的高级编排与配置规范。
+*   **Linux.do 社区**：
+    *   [3.2.1 OMO + 1.1.48 opencode 下的配置分享 + 使用 axonhub 统一管理接入模型 | 更好的管理提供商和公益站](https://linux.do/t/topic/1553729)
+    *   [教程：从 0 开始配置 Opencode.json（含配置 Provider / 中转站 / 思考预算等）](https://linux.do/t/topic/1497563)
+    *   [新年来分享我的 oh-my-opencode 配置和学习心得](https://linux.do/t/topic/1624433)
 *   **Gemini** - 大语言模型（AI）辅助编写与迭代完成。
 
 ---
