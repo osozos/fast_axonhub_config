@@ -85,6 +85,8 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
             </div>
         </div>
 
+        <!-- 操作按钮组 -->
+        <div class="flex flex-col md:flex-row gap-4 mb-2">
         <button id="convertBtn" class="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 disabled:bg-blue-400 flex items-center justify-center font-medium transition-colors shadow-sm w-full md:w-auto">
             <svg id="loadingIcon" class="hidden animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -92,6 +94,16 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
             </svg>
             <span id="btnText">开始转换</span>
         </button>
+
+            <!-- 跨域代理转换追加按钮 (按需显示) -->
+            <button id="corsRetryBtn" class="hidden bg-yellow-500 text-white px-8 py-3 rounded-lg hover:bg-yellow-600 disabled:bg-yellow-400 flex items-center justify-center font-medium transition-colors shadow-sm w-full md:w-auto">
+                <svg id="corsLoadingIcon" class="hidden animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span id="corsBtnText">跨域代理转换 (0)</span>
+            </button>
+        </div>
 
         <!-- 进度条 -->
         <div id="progressContainer" class="hidden mt-6">
@@ -228,6 +240,10 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
             const loadingIcon = document.getElementById('loadingIcon');
             const btnText = document.getElementById('btnText');
 
+            const corsRetryBtn = document.getElementById('corsRetryBtn');
+            const corsLoadingIcon = document.getElementById('corsLoadingIcon');
+            const corsBtnText = document.getElementById('corsBtnText');
+
             const useProxyCheckbox = document.getElementById('useProxy');
             const proxyUrlInput = document.getElementById('proxyUrl');
 
@@ -260,6 +276,15 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
             const ohMyOpencodeOutputContainer = document.getElementById('ohMyOpencodeOutputContainer');
             const ohMyOpencodeOutputJson = document.getElementById('ohMyOpencodeOutputJson');
             const copyOhMyOpencodeBtn = document.getElementById('copyOhMyOpencodeBtn');
+
+            // 全局状态管理
+            let globalChannels = [];
+            let globalModels = [];
+            let globalApiKeys = [];
+            let globalCorsTasks = [];
+            let globalErrors = [];
+            let globalSuccessCount = 0;
+            let globalFailCount = 0;
 
             useProxyCheckbox.addEventListener('change', (e) => {
                 proxyUrlInput.disabled = !e.target.checked;
@@ -719,7 +744,7 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 return proxyPrefix.endsWith('=') ? proxyPrefix + encodeURIComponent(url) : proxyPrefix + url;
             };
 
-            const processChannels = async (channelConfigs, errors) => {
+            const buildChannelTasks = (channelConfigs) => {
                 const tasks = [];
                 channelConfigs.forEach((config, configIndex) => {
                     if (!config.url) return;
@@ -729,16 +754,22 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         tasks.push({ url: config.url, apiKey: apiKey, baseName: baseName, explicitType: config.type, initialTags: config.tags, configIndex: configIndex });
                     });
                 });
+                return tasks;
+            };
 
-                if (tasks.length === 0) return { channels: [], successCount: 0, failCount: 0 };
+            const executeChannelTasks = async (tasks, errorsOut) => {
+                if (tasks.length === 0) return { channels: [], successCount: 0, failCount: 0, corsFailedTasks: [] };
 
                 let usedNames = new Set();
                 let totalTasks = tasks.length;
                 let completedTasks = 0;
                 let successCount = 0;
                 let failCount = 0;
+                let corsFailedTasks = [];
 
                 progressContainer.classList.remove('hidden');
+                progressBar.style.width = `0%`;
+                progressText.textContent = `0%`;
 
                 const promises = tasks.map(async (task) => {
                     let generatedChannels = [];
@@ -766,19 +797,31 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                                     modelsData = await response.json();
                                     break;
                                 } catch (err) {
-                                    if (err.name !== 'AbortError' && !needsProxy && useProxyCheckbox.checked && err instanceof TypeError) {
-                                        needsProxy = true;
-                                        addLog(`[${task.baseName}] 遇到跨域拦截，已切换至跨域代理重新请求...`, 'warn');
-                                        currentUrl = applyProxy(targetUrl);
-                                        const proxyRes = await fetchWithTimeout(currentUrl, options, timeout);
-                                        if (!proxyRes.ok) throw new Error(`HTTP ${proxyRes.status} ${proxyRes.statusText}`);
-                                        modelsData = await proxyRes.json();
-                                        break;
+                                    // CORS拦截 / 网络问题 会抛出 TypeError
+                                    if (err.name !== 'AbortError' && err instanceof TypeError) {
+                                        if (useProxyCheckbox.checked) {
+                                            if (!needsProxy) {
+                                                needsProxy = true;
+                                                addLog(`[${task.baseName}] 遇到跨域拦截，已切换至跨域代理重新请求...`, 'warn');
+                                                currentUrl = applyProxy(targetUrl);
+                                                const proxyRes = await fetchWithTimeout(currentUrl, options, timeout);
+                                                if (!proxyRes.ok) throw new Error(`HTTP ${proxyRes.status} ${proxyRes.statusText}`);
+                                                modelsData = await proxyRes.json();
+                                                break;
+                                            } else {
+                                                throw err; // 代理也报跨域或网络错
+                                            }
+                                        } else {
+                                            // 代理未开启，主动收集该跨域任务供后续重试
+                                            corsFailedTasks.push(task);
+                                            throw new Error("CORS_ERROR");
+                                        }
                                     } else {
                                         throw err;
                                     }
                                 }
                             } catch (outerErr) {
+                                if (outerErr.message === "CORS_ERROR") throw outerErr;
                                 if (outerErr.name === 'AbortError') {
                                     if (i === timeouts.length - 1) throw new Error(`连续 3 次请求超时，已放弃连接。`);
                                 } else {
@@ -890,10 +933,14 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                             }
                         }
                     } catch (e) {
-                        failCount++;
-                        let keyPreview = task.apiKey ? task.apiKey.substring(0, 8) + '...' : '空Key';
-                        addLog(`[${task.baseName}] 获取失败: ${e.message}`, 'error');
-                        errors.push(`[${task.url}] Key: ${keyPreview} 获取失败: ${e.message}`);
+                        if (e.message === "CORS_ERROR") {
+                            addLog(`[${task.baseName}] 出现跨域拦截，已收集任务等待代理重试。`, 'warn');
+                        } else {
+                            failCount++;
+                            let keyPreview = task.apiKey ? task.apiKey.substring(0, 8) + '...' : '空Key';
+                            addLog(`[${task.baseName}] 获取失败: ${e.message}`, 'error');
+                            errorsOut.push(`[${task.url}] Key: ${keyPreview} 获取失败: ${e.message}`);
+                        }
                     } finally {
                         completedTasks++;
                         let percent = Math.round((completedTasks / totalTasks) * 100);
@@ -915,12 +962,9 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 let finalChannels = [];
                 results.forEach(res => { if (res) finalChannels.push(...res); });
                 finalChannels.sort((a, b) => a._configIndex - b._configIndex);
-                finalChannels.forEach((channel, idx) => {
-                    channel.id = idx + 1;
-                    delete channel._configIndex;
-                });
+                finalChannels.forEach((channel) => { delete channel._configIndex; });
 
-                return { channels: finalChannels, successCount, failCount };
+                return { channels: finalChannels, successCount, failCount, corsFailedTasks };
             };
 
             // 智能生成 Oh My OpenCode 配置文件
@@ -1028,6 +1072,131 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 return config;
             };
 
+            const updateAxonHubOutput = () => {
+                const finalOutput = {
+                    version: "1.1",
+                    timestamp: getIsoTime(),
+                    channels: globalChannels,
+                    models: globalModels,
+                    api_keys: globalApiKeys
+                };
+                outputJson.value = JSON.stringify(finalOutput, null, 4);
+
+                allOutputsContainer.classList.remove('hidden');
+                allOutputsContainer.classList.add('flex');
+                outputContainer.classList.remove('hidden');
+                outputContainer.classList.add('flex');
+            };
+
+            // --- 生成 OpenCode JSON (官方标准结构) ---
+            const generateOpenCodeOutputs = () => {
+                if (globalModels.length === 0) return;
+
+                let opencodeConfig = {
+                    "$schema": "https://opencode.ai/config.json",
+                    "autoupdate": false,
+                    "share": "disabled",
+                    "plugin": [
+                        "opencode-axonhub-tracing"
+                    ],
+                    "provider": {}
+                };
+
+                // 查找 name 为 opencode 的 apiKey
+                const opencodeKeyObj = globalApiKeys.find(k => k.name === 'opencode');
+                const opencodeKey = opencodeKeyObj ? opencodeKeyObj.key : undefined;
+
+                globalModels.forEach(model => {
+                    let dev = (model.developer || '').toLowerCase();
+                    if (dev === 'openai_responses') dev = 'openai';
+
+                    const pInfo = OPENCODE_PROVIDER_MAP[dev] || {
+                        prefix: dev,
+                        name: dev.charAt(0).toUpperCase() + dev.slice(1),
+                        npm: '@ai-sdk/openai-compatible',
+                        url: 'http://localhost:8090/v1'
+                    };
+
+                    const providerKey = `axonhub-${pInfo.prefix}`;
+
+                    if (!opencodeConfig.provider[providerKey]) {
+                        opencodeConfig.provider[providerKey] = {
+                            name: `AxonHub ${pInfo.name}`,
+                            npm: pInfo.npm,
+                            options: {
+                                baseURL: pInfo.url
+                            },
+                            models: {}
+                        };
+                        if (opencodeKey) {
+                            opencodeConfig.provider[providerKey].options.apiKey = opencodeKey;
+                        }
+                    }
+
+                    // 提取模型基本数据
+                    let modelEntry = {
+                        name: model.name,
+                        limit: model.model_card.limit,
+                        modalities: model.model_card.modalities
+                    };
+
+                    // 智能注入 Variants (仅当支持 reasoning 时)
+                    if (model.model_card && model.model_card.reasoning && model.model_card.reasoning.supported) {
+                        if (pInfo.npm === '@ai-sdk/openai') {
+                            modelEntry.variants = {};
+
+                            // 判断是否需要注入 xhigh
+                            let includeXHigh = false;
+                            if (model.model_id.toLowerCase().includes('codex')) {
+                                includeXHigh = true;
+                            } else {
+                                const match = model.model_id.match(/gpt-(\d+(?:\.\d+)?)/i);
+                                if (match && parseFloat(match[1]) >= 5.2) {
+                                    includeXHigh = true;
+                                }
+                            }
+
+                            // 严格按照 xhigh -> high -> medium -> low 降序插入
+                            if (includeXHigh) {
+                                modelEntry.variants.xhigh = { reasoningEffort: "xhigh", reasoningSummary: "auto", textVerbosity: "high" };
+                            }
+                            modelEntry.variants.high = { reasoningEffort: "high", reasoningSummary: "auto", textVerbosity: "high" };
+                            modelEntry.variants.medium = { reasoningEffort: "medium", reasoningSummary: "auto", textVerbosity: "medium" };
+                            modelEntry.variants.low = { reasoningEffort: "low", reasoningSummary: "auto", textVerbosity: "low" };
+
+                        } else if (pInfo.npm === '@ai-sdk/google') {
+                            modelEntry.variants = {
+                                high: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
+                                medium: { thinkingConfig: { includeThoughts: true, thinkingLevel: "medium" } },
+                                low: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } }
+                            };
+                        } else if (pInfo.npm === '@ai-sdk/anthropic') {
+                            modelEntry.variants = {
+                                high: { thinking: { budgetTokens: 18000, type: "enabled" } },
+                                medium: { thinking: { budgetTokens: 13000, type: "enabled" } },
+                                low: { thinking: { budgetTokens: 5000, type: "enabled" } }
+                            };
+                        }
+                    }
+
+                    opencodeConfig.provider[providerKey].models[model.model_id] = modelEntry;
+                });
+
+                opencodeOutputJson.value = JSON.stringify(opencodeConfig, null, 4);
+                opencodeOutputContainer.classList.remove('hidden');
+                opencodeOutputContainer.classList.add('flex');
+                addLog('成功生成 OpenCode 配置文件', 'success');
+
+                // --- 生成 Oh My OpenCode JSON ---
+                const ohMyOpencodeConfig = generateOhMyOpenCodeConfig(opencodeConfig);
+                if (ohMyOpencodeConfig) {
+                    ohMyOpencodeOutputJson.value = JSON.stringify(ohMyOpencodeConfig, null, 4);
+                    ohMyOpencodeOutputContainer.classList.remove('hidden');
+                    ohMyOpencodeOutputContainer.classList.add('flex');
+                    addLog('成功生成 Oh My OpenCode 配置文件', 'success');
+                }
+            };
+
             convertBtn.addEventListener('click', async () => {
                 const channelText = channelInput.value.trim();
                 const modelText = modelInput.value.trim();
@@ -1038,9 +1207,19 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                     return;
                 }
 
+                // 重置所有全局变量状态
+                globalChannels = [];
+                globalModels = [];
+                globalApiKeys = [];
+                globalCorsTasks = [];
+                globalErrors = [];
+                globalSuccessCount = 0;
+                globalFailCount = 0;
+
                 convertBtn.disabled = true;
                 loadingIcon.classList.remove('hidden');
                 btnText.textContent = '正在处理数据...';
+                corsRetryBtn.classList.add('hidden'); // 重置时隐藏跨域按钮
 
                 logContainer.classList.remove('hidden');
                 logList.innerHTML = '';
@@ -1049,7 +1228,6 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 summaryContainer.classList.add('hidden');
                 errorContainer.classList.add('hidden');
 
-                // 隐藏所有输出容器
                 allOutputsContainer.classList.add('hidden');
                 allOutputsContainer.classList.remove('flex');
                 outputContainer.classList.add('hidden');
@@ -1067,13 +1245,10 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 let channelConfigs = [];
                 let modelsConfig = null;
                 let apiKeysConfig = [];
-                const errors = [];
 
                 try {
                     channelConfigs = parseChannelInput(channelText);
-                    if (modelText) {
-                        modelsConfig = parseModelInput(modelText);
-                    }
+                    if (modelText) { modelsConfig = parseModelInput(modelText); }
                     apiKeysConfig = parseApiKeysInput(apiKeyText);
                 } catch (e) {
                     addLog(e.message, 'error');
@@ -1082,25 +1257,36 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                 }
 
                 try {
+                    const tasks = buildChannelTasks(channelConfigs);
+
                     const [channelsResult, finalModels] = await Promise.all([
-                        processChannels(channelConfigs, errors),
+                        executeChannelTasks(tasks, globalErrors),
                         processModels(modelsConfig)
                     ]);
 
-                    const finalApiKeys = processApiKeys(apiKeysConfig);
-                    if (finalApiKeys.length > 0) {
-                        addLog(`成功生成 ${finalApiKeys.length} 个 API Key 配置`, 'success');
+                    globalChannels = channelsResult.channels;
+                    globalSuccessCount = channelsResult.successCount;
+                    globalFailCount = channelsResult.failCount;
+                    globalCorsTasks = channelsResult.corsFailedTasks;
+                    globalModels = finalModels;
+                    globalApiKeys = processApiKeys(apiKeysConfig);
+
+                    if (globalApiKeys.length > 0) {
+                        addLog(`成功生成 ${globalApiKeys.length} 个 API Key 配置`, 'success');
                     }
 
-                    elSuccessCount.textContent = channelsResult.successCount;
-                    elFailCount.textContent = channelsResult.failCount;
-                    elChannelCount.textContent = channelsResult.channels.length;
-                    elModelCount.textContent = finalModels.length;
-                    elApiKeyCount.textContent = finalApiKeys.length;
+                    // 排序索引后统一赋初始的 ID
+                    globalChannels.forEach((channel, idx) => { channel.id = idx + 1; });
+
+                    elSuccessCount.textContent = globalSuccessCount;
+                    elFailCount.textContent = globalFailCount;
+                    elChannelCount.textContent = globalChannels.length;
+                    elModelCount.textContent = globalModels.length;
+                    elApiKeyCount.textContent = globalApiKeys.length;
                     summaryContainer.classList.remove('hidden');
 
-                    if (errors.length > 0) {
-                        errors.forEach(err => {
+                    if (globalErrors.length > 0) {
+                        globalErrors.forEach(err => {
                             const li = document.createElement('li');
                             li.textContent = err;
                             errorList.appendChild(li);
@@ -1108,135 +1294,84 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                         errorContainer.classList.remove('hidden');
                     }
 
-                    // --- 生成 AxonHub JSON ---
-                    const finalOutput = {
-                        version: "1.1",
-                        timestamp: getIsoTime(),
-                        channels: channelsResult.channels,
-                        models: finalModels,
-                        api_keys: finalApiKeys
-                    };
-                    outputJson.value = JSON.stringify(finalOutput, null, 4);
-
-                    allOutputsContainer.classList.remove('hidden');
-                    allOutputsContainer.classList.add('flex');
-                    outputContainer.classList.remove('hidden');
-                    outputContainer.classList.add('flex');
-
-                    // --- 生成 OpenCode JSON (官方标准结构) ---
-                    let opencodeConfig = null;
-                    if (finalModels.length > 0) {
-                        opencodeConfig = {
-                            "$schema": "https://opencode.ai/config.json",
-                            "autoupdate": false,
-                            "share": "disabled",
-                            "plugin": [
-                                "opencode-axonhub-tracing"
-                            ],
-                            "provider": {}
-                        };
-
-                        // 查找 name 为 opencode 的 apiKey
-                        const opencodeKeyObj = finalApiKeys.find(k => k.name === 'opencode');
-                        const opencodeKey = opencodeKeyObj ? opencodeKeyObj.key : undefined;
-
-                        finalModels.forEach(model => {
-                            let dev = (model.developer || '').toLowerCase();
-                            if (dev === 'openai_responses') dev = 'openai';
-
-                            const pInfo = OPENCODE_PROVIDER_MAP[dev] || {
-                                prefix: dev,
-                                name: dev.charAt(0).toUpperCase() + dev.slice(1),
-                                npm: '@ai-sdk/openai-compatible',
-                                url: 'http://localhost:8090/v1'
-                            };
-
-                            const providerKey = `axonhub-${pInfo.prefix}`;
-
-                            if (!opencodeConfig.provider[providerKey]) {
-                                opencodeConfig.provider[providerKey] = {
-                                    name: `AxonHub ${pInfo.name}`,
-                                    npm: pInfo.npm,
-                                    options: {
-                                        baseURL: pInfo.url
-                                    },
-                                    models: {}
-                                };
-                                if (opencodeKey) {
-                                    opencodeConfig.provider[providerKey].options.apiKey = opencodeKey;
-                                }
-                            }
-
-                            // 提取模型基本数据
-                            let modelEntry = {
-                                name: model.name,
-                                limit: model.model_card.limit,
-                                modalities: model.model_card.modalities
-                            };
-
-                            // 智能注入 Variants (仅当支持 reasoning 时)
-                            if (model.model_card && model.model_card.reasoning && model.model_card.reasoning.supported) {
-                                if (pInfo.npm === '@ai-sdk/openai') {
-                                    modelEntry.variants = {};
-
-                                    // 判断是否需要注入 xhigh
-                                    let includeXHigh = false;
-                                    if (model.model_id.toLowerCase().includes('codex')) {
-                                        includeXHigh = true;
-                                    } else {
-                                        const match = model.model_id.match(/gpt-(\d+(?:\.\d+)?)/i);
-                                        if (match && parseFloat(match[1]) >= 5.2) {
-                                            includeXHigh = true;
-                                        }
-                                    }
-
-                                    // 严格按照 xhigh -> high -> medium -> low 降序插入
-                                    if (includeXHigh) {
-                                        modelEntry.variants.xhigh = { reasoningEffort: "xhigh", reasoningSummary: "auto", textVerbosity: "high" };
-                                    }
-                                    modelEntry.variants.high = { reasoningEffort: "high", reasoningSummary: "auto", textVerbosity: "high" };
-                                    modelEntry.variants.medium = { reasoningEffort: "medium", reasoningSummary: "auto", textVerbosity: "medium" };
-                                    modelEntry.variants.low = { reasoningEffort: "low", reasoningSummary: "auto", textVerbosity: "low" };
-
-                                } else if (pInfo.npm === '@ai-sdk/google') {
-                                    modelEntry.variants = {
-                                        high: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
-                                        medium: { thinkingConfig: { includeThoughts: true, thinkingLevel: "medium" } },
-                                        low: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } }
-                                    };
-                                } else if (pInfo.npm === '@ai-sdk/anthropic') {
-                                    modelEntry.variants = {
-                                        high: { thinking: { budgetTokens: 18000, type: "enabled" } },
-                                        medium: { thinking: { budgetTokens: 13000, type: "enabled" } },
-                                        low: { thinking: { budgetTokens: 5000, type: "enabled" } }
-                                    };
-                                }
-                            }
-
-                            opencodeConfig.provider[providerKey].models[model.model_id] = modelEntry;
-                        });
-
-                        opencodeOutputJson.value = JSON.stringify(opencodeConfig, null, 4);
-                        opencodeOutputContainer.classList.remove('hidden');
-                        opencodeOutputContainer.classList.add('flex');
-                        addLog('成功生成 OpenCode 配置文件', 'success');
-
-                        // --- 生成 Oh My OpenCode JSON ---
-                        const ohMyOpencodeConfig = generateOhMyOpenCodeConfig(opencodeConfig);
-                        if (ohMyOpencodeConfig) {
-                            ohMyOpencodeOutputJson.value = JSON.stringify(ohMyOpencodeConfig, null, 4);
-                            ohMyOpencodeOutputContainer.classList.remove('hidden');
-                            ohMyOpencodeOutputContainer.classList.add('flex');
-                            addLog('成功生成 Oh My OpenCode 配置文件', 'success');
-                        }
+                    // 如果探测到有被 CORS 拦截的链接，自动呼出跨域重试按钮并打出警告
+                    if (globalCorsTasks.length > 0) {
+                        useProxyCheckbox.checked = true;
+                        proxyUrlInput.disabled = false;
+                        proxyUrlInput.classList.remove('bg-gray-100');
+                        corsRetryBtn.classList.remove('hidden');
+                        corsBtnText.textContent = `跨域代理转换 (${globalCorsTasks.length})`;
+                        addLog(`警告：发现 ${globalCorsTasks.length} 个跨域请求拦截！已自动开启上方跨域代理开关，请输入代理地址后点击【跨域代理转换】按钮重试这部分请求！`, 'warn');
                     }
 
-                    addLog('所有转换任务完成！', 'success');
+                    updateAxonHubOutput();
+                    generateOpenCodeOutputs();
+
+                    addLog('基础转换任务完成！', 'success');
                 } catch (e) {
                     addLog(`执行过程中发生严重错误: ${e.message}`, 'error');
                 }
 
                 resetUI();
+            });
+
+            // 新增功能：专门重试被跨域拦截的链接并追加到末尾
+            corsRetryBtn.addEventListener('click', async () => {
+                if (!proxyUrlInput.value.trim()) {
+                    alert("请输入跨域代理地址！\n例如: https://your-worker.workers.dev/?url=");
+                    proxyUrlInput.focus();
+                    return;
+                }
+
+                corsRetryBtn.disabled = true;
+                corsLoadingIcon.classList.remove('hidden');
+                corsBtnText.textContent = '正在跨域转换...';
+                addLog(`开始通过跨域代理重试 ${globalCorsTasks.length} 个被拦截的渠道...`, 'info');
+
+                try {
+                    const result = await executeChannelTasks(globalCorsTasks, globalErrors);
+
+                    // 追加统计数据
+                    globalSuccessCount += result.successCount;
+                    globalFailCount += result.failCount;
+                    globalCorsTasks = result.corsFailedTasks; // 重置为残余跨域失败数（正常有代理应为空）
+
+                    // 【核心】追加新生成的渠道到源数据末尾，重新顺延洗牌 ID
+                    globalChannels.push(...result.channels);
+                    globalChannels.forEach((channel, idx) => { channel.id = idx + 1; });
+
+                    // 更新面板数值
+                    elSuccessCount.textContent = globalSuccessCount;
+                    elFailCount.textContent = globalFailCount;
+                    elChannelCount.textContent = globalChannels.length;
+
+                    if (globalErrors.length > 0) {
+                        errorList.innerHTML = '';
+                        globalErrors.forEach(err => {
+                            const li = document.createElement('li');
+                            li.textContent = err;
+                            errorList.appendChild(li);
+                        });
+                        errorContainer.classList.remove('hidden');
+                    }
+
+                    // 重新只生成并刷新 AxonHub 配置 JSON
+                    updateAxonHubOutput();
+
+                    addLog('跨域代理重试完成！成功渠道已完美追加至原 JSON 数据末尾。', 'success');
+                } catch (e) {
+                    addLog(`跨域重试过程中发生错误: ${e.message}`, 'error');
+                }
+
+                // 还原 UI 状态
+                corsRetryBtn.disabled = false;
+                corsLoadingIcon.classList.add('hidden');
+                if (globalCorsTasks.length > 0) {
+                    corsBtnText.textContent = `跨域代理转换 (${globalCorsTasks.length})`;
+                } else {
+                    corsRetryBtn.classList.add('hidden');
+                }
+                setTimeout(() => { progressContainer.classList.add('hidden'); }, 1500);
             });
 
             function resetUI() {
