@@ -38,10 +38,10 @@
                     </div>
                     <div class="flex items-center mt-3">
                         <label class="text-sm text-gray-600 mr-3 whitespace-nowrap">代理地址:</label>
-                        <input type="text" id="proxyUrl" value="https://corsproxy.io/?" disabled class="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm bg-gray-100" placeholder="例如: https://corsproxy.io/?">
+                        <input type="text" id="proxyUrl" value="" disabled class="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm bg-gray-100" placeholder="例如: https://your-worker.workers.dev/?url=">
                     </div>
                     <p class="text-xs text-yellow-700 mt-2">
-                        ⚠️ <b>安全提示</b>：默认使用公共代理仅供测试。由于请求头包含敏感的 <b>API Key</b>，建议长期使用时替换为您自建的代理（如 Cloudflare Worker），或关闭此选项并安装浏览器的「Allow CORS」插件。
+                        ⚠️ <b>安全提示</b>：API Key 会通过代理发送，请勿使用公共代理。请自建 Cloudflare Worker 作为代理（免费），或关闭此选项并使用浏览器的「Allow CORS」插件。
                     </p>
                 </div>
             </div>
@@ -330,7 +330,9 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                             }));
                         }
                     }
-                } catch (e) { }
+                } catch (e) {
+                    addLog(`API Keys YAML 解析失败，回退到 CSV 格式: ${e.message}`, 'warn');
+                }
 
                 // CSV 回退 (name[,key])
                 const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
@@ -400,7 +402,9 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                             }));
                         }
                     }
-                } catch (e) { }
+                } catch (e) {
+                    addLog(`Channels YAML 解析失败，回退到 CSV 格式: ${e.message}`, 'warn');
+                }
 
                 // CSV 回退 (URL,apiKey[,name[,type[,tags]]])
                 const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
@@ -433,6 +437,22 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
 
             const getPermutations = (arr) => {
                 if (arr.length <= 1) return [arr];
+                if (arr.length > 4) {
+                    // 超过4个元素时，返回固定数量避免阶乘爆炸 (4! = 24)
+                    const limit = 24;
+                    let result = [];
+                    for (let i = 0; i < Math.min(arr.length, 12); i++) {
+                        let current = arr[i];
+                        let remaining = arr.slice(0, i).concat(arr.slice(i + 1));
+                        let remainingPerms = getPermutations(remaining);
+                        for (let perm of remainingPerms) {
+                            if (result.length >= limit) break;
+                            result.push([current].concat(perm));
+                        }
+                        if (result.length >= limit) break;
+                    }
+                    return result;
+                }
                 let result = [];
                 for (let i = 0; i < arr.length; i++) {
                     let current = arr[i];
@@ -883,7 +903,15 @@ codex,ah-1234567890abcdef... (长度不足会自动重新生成)"></textarea>
                     return generatedChannels;
                 });
 
-                const results = await Promise.all(promises);
+                // 并发控制：限制同时进行的请求数量
+                const CONCURRENCY_LIMIT = 5;
+                const results = [];
+                for (let i = 0; i < promises.length; i += CONCURRENCY_LIMIT) {
+                    const batch = promises.slice(i, i + CONCURRENCY_LIMIT);
+                    const batchResults = await Promise.all(batch);
+                    results.push(...batchResults);
+                }
+
                 let finalChannels = [];
                 results.forEach(res => { if (res) finalChannels.push(...res); });
                 finalChannels.sort((a, b) => a._configIndex - b._configIndex);
